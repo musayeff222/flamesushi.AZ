@@ -138,6 +138,71 @@ export async function verifyAdminLogin(
   return passwordOk ? { ok: true } : { ok: false, reason: "wrong_password" };
 }
 
+export type ChangePasswordFailReason =
+  | "not_found"
+  | "wrong_password"
+  | "password_not_configured"
+  | "weak_password"
+  | "same_as_current";
+
+export type ChangePasswordResult =
+  | { ok: true }
+  | { ok: false; reason: ChangePasswordFailReason };
+
+const MIN_ADMIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Cari şifrəni yoxlayıb bcrypt hash-i yenisi ilə əvəz edir.
+ */
+export async function updateAdminPassword(
+  pool: Pool,
+  emailNorm: string,
+  currentPlain: string,
+  newPlain: string,
+): Promise<ChangePasswordResult> {
+  if (typeof newPlain !== "string" || newPlain.length < MIN_ADMIN_PASSWORD_LENGTH) {
+    return { ok: false, reason: "weak_password" };
+  }
+  if (newPlain === currentPlain) {
+    return { ok: false, reason: "same_as_current" };
+  }
+
+  const [rows] = await pool.execute<AdminPwdRow[]>(
+    `SELECT email, password_hash FROM admins`,
+  );
+
+  const match = rows.find(
+    (r) => normalizeEmailForAuth(String(r.email)) === emailNorm,
+  );
+
+  if (!match) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const hash =
+    typeof match.password_hash === "string"
+      ? match.password_hash.trim()
+      : "";
+
+  if (!hash.length) {
+    return { ok: false, reason: "password_not_configured" };
+  }
+
+  const currentOk = await bcrypt.compare(currentPlain, match.password_hash);
+  if (!currentOk) {
+    return { ok: false, reason: "wrong_password" };
+  }
+
+  const rounds = Number(process.env.BCRYPT_ROUNDS) || 12;
+  const nextHash = await bcrypt.hash(String(newPlain), rounds);
+  await pool.execute(`UPDATE admins SET password_hash = ? WHERE email = ?`, [
+    nextHash,
+    match.email,
+  ]);
+
+  return { ok: true };
+}
+
 export type AdminEmailDiagnosticRow = {
   id: number;
   raw: string;

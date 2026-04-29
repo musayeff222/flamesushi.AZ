@@ -12,6 +12,7 @@ import {
   replaceAllAdminsFromEnv,
   seedAdminFromEnvIfEmpty,
   trySeedAdminFromEnv,
+  updateAdminPassword,
   verifyAdminLogin,
 } from "./adminMysql.js";
 const SESSION_COOKIE = "flamesushi_admin_session";
@@ -81,19 +82,34 @@ function signingSecret(): string | null {
   return null;
 }
 
-function createSessionToken(secret: string): string {
+interface AdminSessionPayload {
+  sub: string;
+  exp: number;
+  /** Normalizə olunmuş giriş e-poçtu (köhnə kukilər üçün facultativ). */
+  email?: string;
+}
+
+function createSessionToken(secret: string, adminEmailNormalized: string): string {
   const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-  const payload = Buffer.from(JSON.stringify({ sub: "admin", exp })).toString(
-    "base64url",
-  );
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: "admin",
+      exp,
+      email: adminEmailNormalized,
+    }),
+  ).toString("base64url");
   const sig = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-function verifySessionToken(token: string, secret: string): boolean {
+/** İmzanı və süresini yoxlayır; əsasən köhnə kukilər üçün email boş ola bilər. */
+function parseVerifiedSessionToken(
+  token: string,
+  secret: string,
+): AdminSessionPayload | null {
   try {
     const dot = token.lastIndexOf(".");
-    if (dot === -1) return false;
+    if (dot === -1) return null;
     const payloadPart = token.slice(0, dot);
     const sig = token.slice(dot + 1);
     const expected = crypto.createHmac("sha256", secret).update(payloadPart).digest(
@@ -103,15 +119,22 @@ function verifySessionToken(token: string, secret: string): boolean {
       sig.length !== expected.length ||
       !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
     ) {
-      return false;
+      return null;
     }
     const decoded = Buffer.from(payloadPart, "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as { sub?: string; exp?: number };
-    if (parsed.sub !== "admin" || typeof parsed.exp !== "number") return false;
-    if (parsed.exp < Math.floor(Date.now() / 1000)) return false;
-    return true;
+    const parsed = JSON.parse(decoded) as Partial<AdminSessionPayload>;
+    if (parsed.sub !== "admin" || typeof parsed.exp !== "number") return null;
+    if (parsed.exp < Math.floor(Date.now() / 1000)) return null;
+    if (parsed.email !== undefined && typeof parsed.email !== "string") return null;
+    const em =
+      typeof parsed.email === "string" && parsed.email.length > 0
+        ? parsed.email.trim()
+        : undefined;
+    return em
+      ? { sub: "admin", exp: parsed.exp, email: em }
+      : { sub: "admin", exp: parsed.exp };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -403,11 +426,15 @@ function attachApi(app: express.Application, cwd: string) {
       return;
     }
     const tok = getSessionToken(req);
-    if (!tok || !verifySessionToken(tok, secret)) {
+    const sess = tok ? parseVerifiedSessionToken(tok, secret) : null;
+    if (!sess) {
       res.json({ authenticated: false });
       return;
     }
-    res.json({ authenticated: true });
+    res.json({
+      authenticated: true,
+      email: sess.email ?? null,
+    });
   });
 
   app.post("/api/admin/login", async (req, res) => {
@@ -466,7 +493,7 @@ function attachApi(app: express.Application, cwd: string) {
       return;
     }
 
-    const token = createSessionToken(secret);
+    const token = createSessionToken(secret, email);
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
       secure: adminSessionCookieSecure(req),
@@ -482,6 +509,70 @@ function attachApi(app: express.Application, cwd: string) {
     res.json({ ok: true });
   });
 
+  app.post("/api/admin/change-password", async (req, res) => {
+    const mysqlPool = getMysqlPool();
+    const secret = signingSecret();
+    if (!mysqlPool || !secret) {
+      res.status(503).json({
+        error: "MySQL və sessiya dəyərləri lazımdır",
+      });
+      return;
+    }
+    const tok = getSessionToken(req);
+    const sess = tok ? parseVerifiedSessionToken(tok, secret) : null;
+    if (!sess) {
+      res.status(401).json({ error: "Giriş tələb olunur" });
+      return;
+    }
+    if (!sess.email) {
+      res.status(403).json({
+        error:
+          "Köhnə sessiya — şifrəni dəyişmək üçün bir dəfə çıxıb yenidən daxil olun.",
+      });
+      return;
+    }
+
+    const cur =
+      typeof req.body?.currentPassword === "string"
+        ? req.body.currentPassword
+        : "";
+    const nw =
+      typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
+    if (!cur || !nw) {
+      res.status(400).json({ error: "Cari və yeni şifrə tələb olunur" });
+      return;
+    }
+
+    const outcome = await updateAdminPassword(mysqlPool, sess.email, cur, nw);
+    if (outcome.ok === false) {
+      let msg: string;
+      switch (outcome.reason) {
+        case "wrong_password":
+          msg = "Cari şifrə yanlışdır.";
+          break;
+        case "not_found":
+          msg = "Administrator tapılmadı — yenidən giriş edin.";
+          break;
+        case "password_not_configured":
+          msg = "Şifrə təyin olunmayıb — hostingdə ADMIN_EMAIL ilə seed edin.";
+          break;
+        case "weak_password":
+          msg = "Yeni şifrə ən azı 8 simvol olmalıdır.";
+          break;
+        case "same_as_current":
+          msg = "Yeni şifrə cari şifrədən fərqli olmalıdır.";
+          break;
+        default:
+          msg = "Şifrə yenilənə bilmədi.";
+          break;
+      }
+      res.status(400).json({ error: msg });
+      return;
+    }
+
+    res.json({ ok: true });
+  });
+
   app.put("/api/admin/catalog", async (req, res) => {
     const mysqlPool = getMysqlPool();
     const secret = signingSecret();
@@ -492,7 +583,7 @@ function attachApi(app: express.Application, cwd: string) {
       return;
     }
     const tok = getSessionToken(req);
-    if (!tok || !verifySessionToken(tok, secret)) {
+    if (!tok || !parseVerifiedSessionToken(tok, secret)) {
       res.status(401).json({ error: "Giriş tələb olunur" });
       return;
     }

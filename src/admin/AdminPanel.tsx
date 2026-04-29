@@ -9,6 +9,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Images,
+  KeyRound,
+  LayoutDashboard,
   LogOut,
   Menu,
   Moon,
@@ -33,20 +35,37 @@ import { AdminBannersTab } from './AdminBannersTab.tsx';
 import { AdminPromosTab } from './AdminPromosTab.tsx';
 
 type Tab =
+  | 'overview'
   | 'banners'
   | 'categories'
   | 'products'
   | 'promos'
-  | 'site';
+  | 'site'
+  | 'security';
 
 const ADMIN_THEME_KEY = 'flamesushi_admin_theme_dark';
+
+const NAV_ITEMS = [
+  { id: 'overview' as const, label: 'İdarə paneli', Icon: LayoutDashboard },
+  { id: 'banners' as const, label: 'Banerlər', Icon: Images },
+  { id: 'categories' as const, label: 'Məhsul qrupları', Icon: Tags },
+  { id: 'products' as const, label: 'Məhsullar', Icon: Package },
+  { id: 'promos' as const, label: 'Promo kodlar', Icon: TicketPercent },
+  { id: 'site' as const, label: 'Sayt / WhatsApp', Icon: Settings2 },
+  {
+    id: 'security' as const,
+    label: 'Şifrə və təhlükəsizlik',
+    Icon: KeyRound,
+  },
+] as const;
 
 function cloneCatalog(c: CatalogState): CatalogState {
   return JSON.parse(JSON.stringify(c)) as CatalogState;
 }
 
-async function fetchAuth(): Promise<{
+async function fetchAdminMe(): Promise<{
   authenticated: boolean;
+  email: string | null;
   reason?:
     | 'mysql_not_configured'
     | 'session_not_configurable';
@@ -54,12 +73,14 @@ async function fetchAuth(): Promise<{
   const r = await fetch('/api/admin/me', { credentials: 'include' });
   const j = (await r.json()) as {
     authenticated?: boolean;
+    email?: string | null;
     reason?:
       | 'mysql_not_configured'
       | 'session_not_configurable';
   };
   return {
     authenticated: Boolean(j.authenticated),
+    email: typeof j.email === 'string' ? j.email : null,
     ...(j.reason ? { reason: j.reason } : {}),
   };
 }
@@ -70,7 +91,7 @@ export default function AdminPanel() {
 
   const [authReady, setAuthReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState<Tab>('banners');
+  const [tab, setTab] = useState<Tab>('overview');
   const [draft, setDraft] = useState<CatalogState>(() =>
     cloneCatalog(defaultCatalogState),
   );
@@ -87,10 +108,11 @@ export default function AdminPanel() {
   const [catFilter, setCatFilter] = useState<string>('all');
   const [productModal, setProductModal] = useState<Product | null>(null);
   const [isNewProduct, setIsNewProduct] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
-      const auth = await fetchAuth();
+      const auth = await fetchAdminMe();
       setAuthReady(true);
       if (auth.reason === 'mysql_not_configured') {
         alert(
@@ -110,6 +132,7 @@ export default function AdminPanel() {
         navigate(ADMIN_ROUTES.login, { replace: true });
         return;
       }
+      setAdminEmail(auth.email ?? null);
       setLoggedIn(true);
     })();
   }, [navigate]);
@@ -237,13 +260,8 @@ export default function AdminPanel() {
     }));
   };
 
-  const navItems = [
-    { id: 'banners' as const, label: 'Banerlər', Icon: Images },
-    { id: 'categories' as const, label: 'Məhsul qrupları', Icon: Tags },
-    { id: 'products' as const, label: 'Məhsullar', Icon: Package },
-    { id: 'promos' as const, label: 'Promo kodlar', Icon: TicketPercent },
-    { id: 'site' as const, label: 'Sayt / WhatsApp', Icon: Settings2 },
-  ] as const;
+  const currentSectionLabel =
+    NAV_ITEMS.find((n) => n.id === tab)?.label ?? 'Admin';
 
   if (!authReady || !loggedIn) {
     return (
@@ -269,7 +287,7 @@ export default function AdminPanel() {
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex max-w-[min(17rem,100%)] flex-col border-r transition-transform duration-200 lg:static lg:max-w-[17rem] lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex max-h-[100dvh] w-[min(18rem,100vw)] max-w-[min(17rem,100%)] flex-col border-r transition-transform duration-200 lg:static lg:w-auto lg:max-w-[17rem] lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${dark ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white'}`}
       >
@@ -288,7 +306,7 @@ export default function AdminPanel() {
           </button>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {navItems.map(({ id, label, Icon }) => (
+          {NAV_ITEMS.map(({ id, label, Icon }) => (
             <button
               key={id}
               type="button"
@@ -309,6 +327,16 @@ export default function AdminPanel() {
             </button>
           ))}
         </nav>
+        {adminEmail ? (
+          <div
+            className={`truncate px-3 pb-2 text-[11px] font-semibold opacity-75 ${
+              dark ? 'text-neutral-400' : 'text-neutral-500'
+            }`}
+            title={adminEmail}
+          >
+            {adminEmail}
+          </div>
+        ) : null}
         <div className={`border-t p-3 ${dark ? 'border-neutral-800' : 'border-neutral-100'}`}>
           <button
             type="button"
@@ -325,53 +353,197 @@ export default function AdminPanel() {
 
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <header
-          className={`sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b px-3 py-3 backdrop-blur sm:px-4 ${
+          className={`sticky top-0 z-20 flex flex-col gap-1 border-b px-3 py-2 backdrop-blur backdrop-saturate-150 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-3 ${
             dark ? 'border-neutral-800 bg-neutral-950/90' : 'border-neutral-200 bg-white/95'
           }`}
         >
-          <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              className={`inline-flex rounded-xl p-2 font-bold lg:hidden ${
-                dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100'
-              }`}
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Menyu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <Link
-              to="/"
-              className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-primary hover:underline"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Sayt
-            </Link>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                className={`inline-flex touch-manipulation rounded-xl p-2 font-bold lg:hidden ${
+                  dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100'
+                }`}
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Menyu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <Link
+                to="/"
+                className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-primary hover:underline"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Sayt
+              </Link>
+              <span
+                className={`hidden min-w-0 truncate text-[11px] font-black sm:inline md:max-w-[200px] lg:max-w-xs ${
+                  dark ? 'text-neutral-400' : 'text-neutral-500'
+                }`}
+                title={currentSectionLabel}
+              >
+                · {currentSectionLabel}
+              </span>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void saveAll()}
+                disabled={saving}
+                className="inline-flex touch-manipulation items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-black text-white shadow-md shadow-primary/20 disabled:opacity-60 sm:px-4 sm:text-sm"
+              >
+                <Save className="h-4 w-4 shrink-0" />
+                <span>{saving ? 'Saxlanır…' : 'Yadda saxla'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className={`inline-flex touch-manipulation items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold sm:px-4 sm:text-sm ${
+                  dark
+                    ? 'border border-neutral-700 bg-neutral-900'
+                    : 'border border-neutral-200 bg-white'
+                }`}
+              >
+                <LogOut className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Çıxış</span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void saveAll()}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-primary/20 disabled:opacity-60"
-            >
-              <Save className="h-4 w-4" />
-              {saving ? 'Saxlanır…' : 'Yadda saxla'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void logout()}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${
-                dark ? 'border border-neutral-700 bg-neutral-900' : 'border border-neutral-200 bg-white'
-              }`}
-            >
-              <LogOut className="h-4 w-4" />
-              Çıxış
-            </button>
-          </div>
+          <p
+            className={`truncate pb-1 text-center text-[11px] font-black sm:hidden sm:pb-0 ${
+              dark ? 'text-neutral-400' : 'text-neutral-600'
+            }`}
+          >
+            {currentSectionLabel}
+          </p>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto px-3 py-6 pb-28 sm:px-6">
+        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 pb-40 max-sm:pb-[calc(7.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-24">
+        {tab === 'overview' && (
+          <section className="space-y-6">
+            <div
+              className={`rounded-2xl border p-6 shadow-sm ${
+                dark
+                  ? 'border-neutral-800 bg-neutral-900/90'
+                  : 'border-neutral-200 bg-white'
+              }`}
+            >
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-55">
+                Flame Sushi · admin
+              </p>
+              <h1 className="mt-1 text-2xl font-black tracking-tight">İdarə paneli</h1>
+              <p className="mt-2 max-w-xl text-sm opacity-85">
+                Məzmunu redaktə edin, sonra yuxarıdan və ya altdakı böyük düymədən serverə yazın.
+              </p>
+              {adminEmail ? (
+                <p className={`mt-3 text-sm ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
+                  Giriş: <span className="font-bold">{adminEmail}</span>
+                </p>
+              ) : (
+                <p className={`mt-3 text-sm ${dark ? 'text-amber-200/90' : 'text-amber-800'}`}>
+                  Köhnə kuki ilə giriş edilib — şifrə dəyişmək üçün çıxıb yenidən daxil olun.
+                </p>
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                {
+                  title: 'Məhsullar',
+                  val: draft.products.length,
+                  hint: 'Kataloqda mövqe',
+                  Icon: Package,
+                  tabId: 'products' as const,
+                },
+                {
+                  title: 'Kateqoriyalar',
+                  val: draft.categories.length,
+                  hint: 'Məhsul qrupları',
+                  Icon: Tags,
+                  tabId: 'categories' as const,
+                },
+                {
+                  title: 'Promo kodlar',
+                  val: (draft.promoCodes ?? []).length,
+                  hint: 'Aktiv aksiyalar',
+                  Icon: TicketPercent,
+                  tabId: 'promos' as const,
+                },
+                {
+                  title: 'Baner foto',
+                  val: draft.siteBanners?.heroImageUrls?.length ?? 0,
+                  hint: 'Əsas səhifə',
+                  Icon: Images,
+                  tabId: 'banners' as const,
+                },
+              ].map(({ title, val, hint, Icon: Ico, tabId }) => (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => setTab(tabId)}
+                  className={`touch-manipulation rounded-2xl border p-4 text-left shadow-sm transition hover:brightness-[1.02] ${
+                    dark
+                      ? 'border-neutral-800 bg-neutral-900/85 hover:border-neutral-700'
+                      : 'border-neutral-200 bg-white hover:border-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider opacity-55">
+                        {title}
+                      </p>
+                      <p className="mt-2 text-3xl font-black tabular-nums">{val}</p>
+                      <p className={`mt-1 text-xs ${dark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                        {hint}
+                      </p>
+                    </div>
+                    <Ico
+                      className={`h-8 w-8 shrink-0 opacity-35 ${
+                        dark ? 'text-primary' : 'text-primary'
+                      }`}
+                    />
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setTab('security')}
+                className={`rounded-2xl border p-5 text-left ${
+                  dark
+                    ? 'border-neutral-800 bg-neutral-950/60'
+                    : 'border-neutral-200 bg-neutral-50'
+                }`}
+              >
+                <KeyRound className="mb-2 h-6 w-6 text-primary" />
+                <p className="font-black">Şifrəni yeniləyin</p>
+                <p className="mt-1 text-sm opacity-80">
+                  Hesab üçün cari şifrədən çıxaraq yenisini təyin edin — yalnız sizdə olan girişi
+                  bağlayır.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveAll()}
+                disabled={saving}
+                className="rounded-2xl border border-primary/40 bg-primary/10 p-5 text-left text-primary hover:bg-primary/15 disabled:opacity-60"
+              >
+                <Save className="mb-2 h-6 w-6" />
+                <p className="font-black">Kataloqu saxla</p>
+                <p className="mt-1 text-sm opacity-90">
+                  {saving ?
+                    'Gözləyin…'
+                  : `WhatsApp (${draft.whatsapp.slice(0, 4)}…), menyular və qiymətlər serverə yazılır.`}
+                </p>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {tab === 'security' && (
+          <AdminSecurityTab dark={dark} adminEmail={adminEmail} />
+        )}
+
         {tab === 'banners' && (
           <AdminBannersTab draft={draft} setDraft={setDraft} dark={dark} />
         )}
@@ -388,13 +560,21 @@ export default function AdminPanel() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Axtarış (ad, təsvir)…"
-                    className="w-full pl-10 pr-3 py-3 rounded-2xl border border-neutral-200 bg-white text-sm font-medium"
+                    className={`w-full pl-10 pr-3 py-3 rounded-2xl border text-sm font-medium ${
+                      dark
+                        ? 'border-neutral-700 bg-neutral-950 text-neutral-100 placeholder:text-neutral-600'
+                        : 'border-neutral-200 bg-white text-neutral-900'
+                    }`}
                   />
                 </div>
                 <select
                   value={catFilter}
                   onChange={(e) => setCatFilter(e.target.value)}
-                  className="w-full sm:w-56 py-3 px-3 rounded-2xl border border-neutral-200 bg-white text-sm font-bold"
+                  className={`w-full sm:w-56 py-3 px-3 rounded-2xl border text-sm font-bold ${
+                    dark
+                      ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                      : 'border-neutral-200 bg-white text-neutral-900'
+                  }`}
                 >
                   <option value="all">Bütün kateqoriyalar</option>
                   {draft.categories.map((c) => (
@@ -407,7 +587,11 @@ export default function AdminPanel() {
               <button
                 type="button"
                 onClick={openNewProduct}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-neutral-900 text-white font-bold px-4 py-3 text-sm"
+                className={`inline-flex touch-manipulation items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold ${
+                  dark
+                    ? 'bg-neutral-100 text-neutral-900'
+                    : 'bg-neutral-900 text-white'
+                }`}
               >
                 <Plus className="w-4 h-4" />
                 Yeni məhsul
@@ -418,45 +602,57 @@ export default function AdminPanel() {
               {sortedFilteredProducts.map((p) => (
                 <div
                   key={p.id}
-                  className="bg-white rounded-2xl border border-neutral-200 p-4 flex gap-3"
+                  className={`flex gap-3 rounded-2xl border p-4 ${
+                    dark
+                      ? 'border-neutral-800 bg-neutral-900/90'
+                      : 'border-neutral-200 bg-white'
+                  }`}
                 >
                   <img
                     src={p.image}
                     alt=""
-                    className="w-20 h-20 rounded-xl object-cover bg-neutral-100 shrink-0"
+                    className={`w-20 h-20 shrink-0 rounded-xl object-cover ${
+                      dark ? 'bg-neutral-800' : 'bg-neutral-100'
+                    }`}
                     referrerPolicy="no-referrer"
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-neutral-900 truncate">
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className={`truncate font-black ${
+                        dark ? 'text-neutral-100' : 'text-neutral-900'
+                      }`}
+                    >
                       {p.name}
                     </div>
-                    <div className="text-xs text-neutral-500 truncate">
+                    <div className="truncate text-xs text-neutral-500">
                       {draft.categories.find((c) => c.id === p.category)?.name ??
                         p.category}
                     </div>
-                    <div className="text-primary font-black mt-1">
+                    <div className="mt-1 font-black text-primary">
                       {(p.discountPrice ?? p.price).toFixed(2)} ₼
                     </div>
                   </div>
-                  <div className="flex flex-col gap-2 shrink-0">
+                  <div className="flex shrink-0 flex-col gap-2">
                     <button
                       type="button"
-                      className="p-2 rounded-xl bg-neutral-100"
+                      className={`touch-manipulation rounded-xl p-2 ${
+                        dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
+                      }`}
                       aria-label="Redaktə"
                       onClick={() => {
                         setIsNewProduct(false);
                         setProductModal({ ...p });
                       }}
                     >
-                      <PencilLine className="w-4 h-4" />
+                      <PencilLine className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
-                      className="p-2 rounded-xl bg-red-50 text-red-600"
+                      className="touch-manipulation rounded-xl bg-red-500/15 p-2 text-red-600 dark:bg-red-500/20 dark:text-red-300"
                       aria-label="Sil"
                       onClick={() => deleteProduct(p.id)}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -468,9 +664,17 @@ export default function AdminPanel() {
               )}
             </div>
 
-            <div className="hidden sm:block overflow-x-auto rounded-2xl border border-neutral-200 bg-white">
+            <div
+              className={`hidden overflow-x-auto rounded-2xl border sm:block ${
+                dark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-200 bg-white'
+              }`}
+            >
               <table className="min-w-full text-sm">
-                <thead className="bg-neutral-50 text-left text-[11px] uppercase tracking-wide text-neutral-500">
+                <thead
+                  className={`text-left text-[11px] uppercase tracking-wide text-neutral-500 ${
+                    dark ? 'bg-neutral-900/80' : 'bg-neutral-50'
+                  }`}
+                >
                   <tr>
                     <th className="px-4 py-3">Şəkil</th>
                     <th className="px-4 py-3">Ad</th>
@@ -481,7 +685,7 @@ export default function AdminPanel() {
                 </thead>
                 <tbody>
                   {sortedFilteredProducts.map((p) => (
-                    <tr key={p.id} className="border-t border-neutral-100">
+                    <tr key={p.id} className={`border-t ${dark ? 'border-neutral-800' : 'border-neutral-100'}`}>
                       <td className="px-4 py-2">
                         <img
                           src={p.image}
@@ -490,7 +694,7 @@ export default function AdminPanel() {
                           referrerPolicy="no-referrer"
                         />
                       </td>
-                      <td className="px-4 py-2 font-semibold max-w-[220px]">
+                      <td className={`px-4 py-2 font-semibold max-w-[220px] ${dark ? 'text-neutral-100' : ''}`}>
                         <span className="line-clamp-2">{p.name}</span>
                         {p.popular ? (
                           <span className="ml-2 text-[10px] font-black text-primary uppercase">
@@ -498,7 +702,7 @@ export default function AdminPanel() {
                           </span>
                         ) : null}
                       </td>
-                      <td className="px-4 py-2 text-neutral-600">
+                      <td className={`px-4 py-2 ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
                         {draft.categories.find((c) => c.id === p.category)?.name ??
                           p.category}
                       </td>
@@ -508,7 +712,9 @@ export default function AdminPanel() {
                       <td className="px-4 py-2 text-right whitespace-nowrap">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 bg-neutral-100 font-bold mr-2"
+                          className={`mr-2 inline-flex touch-manipulation items-center gap-2 rounded-xl px-3 py-2 font-bold ${
+                            dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
+                          }`}
                           onClick={() => {
                             setIsNewProduct(false);
                             setProductModal({ ...p });
@@ -535,6 +741,7 @@ export default function AdminPanel() {
         {tab === 'categories' && (
           <section className="grid gap-3 sm:grid-cols-2">
             <CategoryCard
+              dark={dark}
               onAdd={() => {
                 const id =
                   prompt('Kateqoriya ID (ingilis, nöqtəsiz)')?.trim().toLowerCase() ??
@@ -557,7 +764,11 @@ export default function AdminPanel() {
             {draft.categories.map((c) => (
               <div
                 key={c.id}
-                className="bg-white rounded-2xl border border-neutral-200 p-4 flex gap-4"
+                className={`flex gap-4 rounded-2xl border p-4 ${
+                  dark
+                    ? 'border-neutral-800 bg-neutral-900/90'
+                    : 'border-neutral-200 bg-white'
+                }`}
               >
                 <img
                   src={c.image}
@@ -569,11 +780,15 @@ export default function AdminPanel() {
                   <div className="text-xs font-bold uppercase text-neutral-400">
                     ID: {c.id}
                   </div>
-                  <div className="font-black text-lg">{c.name}</div>
-                  <div className="mt-3 flex gap-2">
+                  <div className={`font-black text-lg ${dark ? 'text-neutral-50' : 'text-neutral-900'}`}>
+                    {c.name}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="rounded-xl bg-neutral-100 font-bold px-3 py-2 text-sm"
+                      className={`touch-manipulation rounded-xl px-3 py-2 text-sm font-bold ${
+                        dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
+                      }`}
                       onClick={() => {
                         const name = prompt('Yeni ad', c.name) ?? c.name;
                         const img = prompt('Şəkil URL', c.image) ?? c.image;
@@ -597,13 +812,27 @@ export default function AdminPanel() {
         )}
 
         {tab === 'site' && (
-          <section className="max-w-xl bg-white rounded-3xl border border-neutral-200 p-6 space-y-5">
+          <section
+            className={`max-w-xl space-y-5 rounded-3xl border p-6 ${
+              dark
+                ? 'border-neutral-800 bg-neutral-900/90'
+                : 'border-neutral-200 bg-white'
+            }`}
+          >
             <div>
-              <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">
+              <label
+                className={`mb-2 block text-xs font-black uppercase tracking-widest ${
+                  dark ? 'text-neutral-500' : 'text-neutral-400'
+                }`}
+              >
                 WhatsApp (yalnız rəqəm)
               </label>
               <input
-                className="w-full rounded-2xl border border-neutral-200 px-4 py-3 font-bold"
+                className={`w-full rounded-2xl border px-4 py-3 font-bold ${
+                  dark
+                    ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                    : 'border-neutral-200 bg-white text-neutral-900'
+                }`}
                 value={draft.whatsapp}
                 onChange={(e) =>
                   setDraft((d) => ({
@@ -613,17 +842,25 @@ export default function AdminPanel() {
                 }
                 inputMode="numeric"
               />
-              <p className="text-xs text-neutral-500 mt-2">
+              <p className={`mt-2 text-xs ${dark ? 'text-neutral-500' : 'text-neutral-500'}`}>
                 Nömrə üçün sifariş linkləri yaradılır (məs.: 994xxxxxxxxx).
               </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">
+                <label
+                  className={`mb-2 block text-xs font-black uppercase tracking-widest ${
+                    dark ? 'text-neutral-500' : 'text-neutral-400'
+                  }`}
+                >
                   Açılış
                 </label>
                 <input
-                  className="w-full rounded-2xl border border-neutral-200 px-4 py-3 font-bold"
+                  className={`w-full rounded-2xl border px-4 py-3 font-bold ${
+                    dark
+                      ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                      : 'border-neutral-200 bg-white text-neutral-900'
+                  }`}
                   value={draft.businessHours.open}
                   onChange={(e) =>
                     setDraft((d) => ({
@@ -634,11 +871,19 @@ export default function AdminPanel() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-neutral-400 mb-2">
+                <label
+                  className={`mb-2 block text-xs font-black uppercase tracking-widest ${
+                    dark ? 'text-neutral-500' : 'text-neutral-400'
+                  }`}
+                >
                   Bağlanış
                 </label>
                 <input
-                  className="w-full rounded-2xl border border-neutral-200 px-4 py-3 font-bold"
+                  className={`w-full rounded-2xl border px-4 py-3 font-bold ${
+                    dark
+                      ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                      : 'border-neutral-200 bg-white text-neutral-900'
+                  }`}
                   value={draft.businessHours.close}
                   onChange={(e) =>
                     setDraft((d) => ({
@@ -667,12 +912,18 @@ export default function AdminPanel() {
         />
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 sm:hidden bg-white border-t border-neutral-200 p-4 z-30">
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-30 border-t p-4 sm:hidden ${
+          dark
+            ? 'border-neutral-800 bg-neutral-950/95 pb-[max(1rem,env(safe-area-inset-bottom))]'
+            : 'border-neutral-200 bg-white pb-[max(1rem,env(safe-area-inset-bottom))]'
+        }`}
+      >
         <button
           type="button"
           onClick={() => void saveAll()}
           disabled={saving}
-          className="w-full rounded-2xl bg-primary text-white font-black py-4 shadow-lg shadow-primary/20 disabled:opacity-60"
+          className="w-full touch-manipulation rounded-2xl bg-primary py-4 text-base font-black text-white shadow-lg shadow-primary/20 disabled:opacity-60"
         >
           {saving ? 'Saxlanır…' : 'Yadda saxla'}
         </button>
@@ -681,12 +932,162 @@ export default function AdminPanel() {
   );
 }
 
-function CategoryCard({ onAdd }: { onAdd: () => void }) {
+function AdminSecurityTab({
+  dark,
+  adminEmail,
+}: {
+  dark: boolean;
+  adminEmail: string | null;
+}) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      alert('Şifrələri daxil edin');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      alert('Yeni şifrə təkrarı uyğun gəlmir');
+      return;
+    }
+    if (newPassword.length < 8) {
+      alert('Yeni şifrə ən azı 8 simvol olmalıdır');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) {
+        alert(j.error || 'Dəyişiklik baş tutmadı');
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      alert('Şifrə yeniləndi.');
+    } catch {
+      alert('Şəbəkə xətası');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const inputCls = `w-full rounded-2xl border px-4 py-3 font-bold outline-none ring-offset-2 ring-offset-transparent focus-visible:ring-2 focus-visible:ring-primary ${
+    dark
+      ? 'border-neutral-700 bg-neutral-950 text-neutral-100 placeholder:text-neutral-600'
+      : 'border-neutral-200 bg-white text-neutral-900'
+  }`;
+
+  return (
+    <section className="mx-auto max-w-lg space-y-6">
+      <div>
+        <h2 className="text-xl font-black">Şifrə və təhlükəsizlik</h2>
+        <p className={`mt-1 text-sm ${dark ? 'text-neutral-400' : 'text-neutral-600'}`}>
+          Cari sessiyanız üçün yeni şifrə təyin edilir (<code>{adminEmail ?? '…'}</code>). Hash
+          MySQL-da saxlanılır.
+        </p>
+      </div>
+      {!adminEmail ? (
+        <div
+          className={`rounded-2xl border p-4 text-sm leading-relaxed ${
+            dark
+              ? 'border-amber-900/60 bg-amber-950/40 text-amber-100'
+              : 'border-amber-300 bg-amber-50 text-amber-950'
+          }`}
+        >
+          Köhnə kuki növündə sessiya var — məhdudiyyət qaldırmaq üçün çıxış edib yenidən daxil olun.
+        </div>
+      ) : (
+        <form
+          onSubmit={submit}
+          className={`rounded-2xl border p-6 space-y-5 ${
+            dark ? 'border-neutral-800 bg-neutral-900/85' : 'border-neutral-200 bg-white shadow-sm'
+          }`}
+        >
+          <label className="block">
+            <span
+              className={`mb-2 block text-xs font-black uppercase tracking-wider ${
+                dark ? 'text-neutral-500' : 'text-neutral-500'
+              }`}
+            >
+              Cari şifrə
+            </span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className={inputCls}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span
+              className={`mb-2 block text-xs font-black uppercase tracking-wider ${
+                dark ? 'text-neutral-500' : 'text-neutral-500'
+              }`}
+            >
+              Yeni şifrə (ən azı 8 simvol)
+            </span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className={inputCls}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span
+              className={`mb-2 block text-xs font-black uppercase tracking-wider ${
+                dark ? 'text-neutral-500' : 'text-neutral-500'
+              }`}
+            >
+              Yeni şifrənin təkrarı
+            </span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className={inputCls}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full touch-manipulation rounded-2xl bg-primary px-4 py-3.5 text-sm font-black text-white shadow-lg shadow-primary/25 disabled:opacity-60"
+          >
+            {busy ? 'Yenilənir…' : 'Şifrəni yenilə'}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function CategoryCard({ onAdd, dark }: { onAdd: () => void; dark: boolean }) {
   return (
     <button
       type="button"
       onClick={onAdd}
-      className="border-2 border-dashed border-neutral-300 rounded-2xl p-6 flex items-center justify-center gap-2 font-black text-neutral-600 hover:border-primary hover:text-primary transition min-h-[120px]"
+      className={`flex min-h-[120px] items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 font-black transition hover:border-primary hover:text-primary ${
+        dark
+          ? 'border-neutral-600 text-neutral-300'
+          : 'border-neutral-300 text-neutral-600'
+      }`}
     >
       <Plus className="w-5 h-5" />
       Yeni kateqoriya
