@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { CatalogState } from './types/catalog.ts';
-import { defaultCatalogState } from './catalogDefaults.ts';
+import { defaultCatalogState, normalizeCatalogState } from './catalogDefaults.ts';
 
 type Status = 'loading' | 'ready' | 'error';
 
@@ -29,8 +29,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     try {
       const r = await fetch('/api/catalog', { credentials: 'same-origin' });
       if (!r.ok) throw new Error('catalog fetch failed');
-      const json = (await r.json()) as CatalogState;
-      setCatalog(json);
+      const json = (await r.json()) as unknown;
+      setCatalog(normalizeCatalogState(json));
       setStatus('ready');
     } catch {
       setCatalog(defaultCatalogState);

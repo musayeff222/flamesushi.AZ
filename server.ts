@@ -27,9 +27,27 @@ interface CatalogPayload {
     category: string;
     image: string;
     popular?: boolean;
+    sortOrder?: number;
+    discountPercent?: number;
+    availabilityNote?: string;
   }>;
   businessHours: { open: string; close: string };
   whatsapp: string;
+  siteBanners?: {
+    heroImageUrls: string[];
+    featuredProductIds?: string[];
+    carouselSeconds?: number;
+  };
+  promoCodes?: Array<{
+    id: string;
+    code: string;
+    discountPercent: number;
+    activeOnWebsite: boolean;
+    validFrom?: string;
+    validTo?: string;
+    note?: string;
+    createdAt: string;
+  }>;
 }
 
 function parseCookies(header?: string): Record<string, string> {
@@ -142,6 +160,15 @@ function isCatalogPayload(body: unknown): body is CatalogPayload {
   const bh = o.businessHours as Record<string, unknown>;
   if (typeof bh.open !== "string" || typeof bh.close !== "string") return false;
   if (typeof o.whatsapp !== "string") return false;
+  if (o.siteBanners !== undefined) {
+    const sb = o.siteBanners as Record<string, unknown>;
+    if (typeof sb !== "object" || sb === null) return false;
+    if (sb.heroImageUrls !== undefined && !Array.isArray(sb.heroImageUrls))
+      return false;
+    if (sb.featuredProductIds !== undefined && !Array.isArray(sb.featuredProductIds))
+      return false;
+  }
+  if (o.promoCodes !== undefined && !Array.isArray(o.promoCodes)) return false;
   return true;
 }
 

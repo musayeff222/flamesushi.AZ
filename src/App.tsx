@@ -25,7 +25,22 @@ import {
   Tag as TagIcon
 } from 'lucide-react';
 import type { Product, Category } from './constants.ts';
+import type { PromoCodeEntry } from './types/catalog.ts';
 import { useCatalog } from './CatalogContext.tsx';
+
+function promoEligible(p: PromoCodeEntry): boolean {
+  if (!p.activeOnWebsite) return false;
+  const now = Date.now();
+  if (p.validFrom) {
+    const t = new Date(`${p.validFrom}T00:00:00`).getTime();
+    if (Number.isFinite(t) && now < t) return false;
+  }
+  if (p.validTo) {
+    const t = new Date(`${p.validTo}T23:59:59`).getTime();
+    if (Number.isFinite(t) && now > t) return false;
+  }
+  return true;
+}
 
 // --- Types ---
 type Page = 'home' | 'cart' | 'about' | 'checkout';
@@ -115,7 +130,8 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showWAPopup, setShowWAPopup] = useState(false);
   const [promoCode, setPromoCode] = useState('');
-  const [isPromoApplied, setIsPromoApplied] = useState(false);
+  /** 0 = yoxdur, əks halda endirim faizi (məs. 10) */
+  const [promoDiscountPercent, setPromoDiscountPercent] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
 
   // Scroll detection for WhatsApp FAB
@@ -176,34 +192,70 @@ export default function App() {
 
   const cartTotal = useMemo(() => {
     const subtotal = cart.reduce((acc, item) => acc + (item.discountPrice || item.price) * item.quantity, 0);
-    return isPromoApplied ? subtotal * 0.9 : subtotal; // 10% discount for FLAME10
-  }, [cart, isPromoApplied]);
+    const m = Math.min(90, Math.max(0, promoDiscountPercent)) / 100;
+    return promoDiscountPercent > 0 ? subtotal * (1 - m) : subtotal;
+  }, [cart, promoDiscountPercent]);
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
 
   const applyPromo = () => {
-    if (promoCode.toUpperCase() === 'FLAME10') {
-      setIsPromoApplied(true);
+    const q = promoCode.trim().toUpperCase();
+    const list = catalog.promoCodes ?? [];
+    const hit = list.find(
+      (p) => p.code.trim().toUpperCase() === q && promoEligible(p),
+    );
+    if (hit) {
+      setPromoDiscountPercent(hit.discountPercent);
     } else {
-      alert('Yanlış promo kod');
+      alert('Yanlış və ya aktiv olmayan promo kod');
     }
   };
 
   const [bannerIndex, setBannerIndex] = useState(0);
-  const popularProducts = useMemo(
-    () => PRODUCTS.filter((p) => p.popular),
-    [PRODUCTS],
-  );
+
+  const bannerSlides = useMemo(() => {
+    const heroUrls =
+      catalog.siteBanners?.heroImageUrls?.filter((u) => Boolean(u?.trim())) ?? [];
+    const feat = catalog.siteBanners?.featuredProductIds ?? [];
+    const pop = PRODUCTS.filter((p) => p.popular);
+    const fallback =
+      pop.length > 0 ? pop : PRODUCTS.slice(0, Math.min(6, PRODUCTS.length));
+    if (heroUrls.length > 0) {
+      return heroUrls.map((url, idx) => {
+        const pid = feat[idx];
+        const product =
+          (pid ? PRODUCTS.find((pr) => pr.id === pid) : undefined) ??
+          fallback[idx % Math.max(fallback.length, 1)] ??
+          PRODUCTS[0];
+        const p = product!;
+        return { key: `hb-${idx}-${p.id}`, imageUrl: url, product: p };
+      });
+    }
+    return fallback.map((p) => ({ key: p.id, imageUrl: p.image, product: p }));
+  }, [catalog.siteBanners, PRODUCTS]);
+
+  const productsInCategorySorted = useMemo(() => {
+    return PRODUCTS.filter((p) => p.category === selectedCategory).sort(
+      (a, b) => {
+        const oa = a.sortOrder ?? 9999;
+        const ob = b.sortOrder ?? 9999;
+        if (oa !== ob) return oa - ob;
+        return a.name.localeCompare(b.name, 'az');
+      },
+    );
+  }, [PRODUCTS, selectedCategory]);
+
+  const carouselMs = Math.max(2500, (catalog.siteBanners?.carouselSeconds ?? 4) * 1000);
 
   useEffect(() => {
     if (activePage === 'home') {
       const interval = setInterval(() => {
-        const n = popularProducts.length || 1;
+        const n = bannerSlides.length || 1;
         setBannerIndex((prev) => (prev + 1) % n);
-      }, 4000);
+      }, carouselMs);
       return () => clearInterval(interval);
     }
-  }, [activePage, popularProducts.length]);
+  }, [activePage, bannerSlides.length, carouselMs]);
 
   const handleOrder = () => {
     if (!customerName || (orderType === 'delivery' && !address)) {
@@ -216,7 +268,7 @@ export default function App() {
     const paymentText = paymentMethod === 'cash' ? 'Nağd' : 'Posterminal (kart)';
     const totalText = `${cartTotal.toFixed(2)}₼`;
     
-    const message = `🔥 *YENİ SİFARİŞ - FLAME SUSHI*%0A%0A👤 *Müştəri:* ${customerName}%0A📦 *Növ:* ${typeText}${orderType === 'delivery' ? `%0A📍 *Ünvan:* ${address}` : ''}%0A💳 *Ödəniş:* ${paymentText}%0A%0A🛒 *Məhsullar:*%0A${itemsText}%0A%0A💰 *Cəmi:* ${totalText}${isPromoApplied ? ' (10% Endirim tətbiq edildi)' : ''}`;
+    const message = `🔥 *YENİ SİFARİŞ - FLAME SUSHI*%0A%0A👤 *Müştəri:* ${customerName}%0A📦 *Növ:* ${typeText}${orderType === 'delivery' ? `%0A📍 *Ünvan:* ${address}` : ''}%0A💳 *Ödəniş:* ${paymentText}%0A%0A🛒 *Məhsullar:*%0A${itemsText}%0A%0A💰 *Cəmi:* ${totalText}${promoDiscountPercent > 0 ? ` (${promoDiscountPercent}% endirim tətbiq edildi)` : ''}`;
     
     window.open(`https://wa.me/${whatsappDigits}?text=${message}`, '_blank');
   };
@@ -264,10 +316,10 @@ export default function App() {
                 animate={{ x: `calc(-${bannerIndex * 100}% - ${bannerIndex * 16}px)` }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
               >
-                {popularProducts.map(product => (
-                  <div key={product.id} className="relative min-w-full md:min-w-[calc(50%-8px)] h-48 md:h-64 rounded-3xl p-6 md:p-10 text-white shadow-xl shadow-orange-200/50 overflow-hidden">
+                {bannerSlides.map(({ key, imageUrl, product }) => (
+                  <div key={key} className="relative min-w-full md:min-w-[calc(50%-8px)] h-48 md:h-64 rounded-3xl p-6 md:p-10 text-white shadow-xl shadow-orange-200/50 overflow-hidden">
                     <img 
-                      src={product.image} 
+                      src={imageUrl} 
                       alt={product.name} 
                       className="absolute inset-0 w-full h-full object-cover brightness-50 transition-transform duration-1000 hover:scale-105" 
                       referrerPolicy="no-referrer"
@@ -315,7 +367,7 @@ export default function App() {
             {/* --- Menu Grid --- */}
             <div className="space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
-                {PRODUCTS.filter(p => p.category === selectedCategory).map(product => (
+                {productsInCategorySorted.map((product) => (
                   <div key={product.id} className="bg-white rounded-3xl border border-neutral-100 shadow-sm hover:shadow-md p-4 relative space-y-4 flex flex-col group transition-all duration-300">
                     {product.discountPrice && (
                       <div className="absolute top-4 right-4 z-10 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded">
@@ -420,7 +472,10 @@ export default function App() {
                     <div className="space-y-4 relative z-10">
                       <div className="flex items-center justify-between text-white/60 font-bold uppercase tracking-widest text-[10px] md:text-xs">
                         <span>Məbləğ</span>
-                        <span className="text-base md:text-lg">{(cartTotal / (isPromoApplied ? 0.9 : 1)).toFixed(2)} ₼</span>
+                        <span className="text-base md:text-lg">
+                          {(cartTotal / (promoDiscountPercent > 0 ? (1 - Math.min(90, promoDiscountPercent) / 100) : 1)).toFixed(2)}{' '}
+                          ₼
+                        </span>
                       </div>
                       <div className="flex gap-2 md:gap-3">
                         <input 
@@ -429,20 +484,30 @@ export default function App() {
                           className="flex-1 bg-white/10 border border-white/20 rounded-[18px] md:rounded-[24px] px-4 md:px-6 py-3 md:py-4 text-sm md:text-base font-bold focus:ring-2 focus:ring-white/40 outline-none transition-all placeholder:text-white/40"
                           value={promoCode}
                           onChange={(e) => setPromoCode(e.target.value)}
-                          disabled={isPromoApplied}
+                          disabled={promoDiscountPercent > 0}
                         />
                         <button 
                           onClick={applyPromo}
-                          className={`px-5 md:px-8 py-3 md:py-4 rounded-[18px] md:rounded-[24px] font-black transition-all uppercase tracking-widest text-[10px] md:text-xs ${isPromoApplied ? 'bg-white text-primary' : 'bg-neutral-900 text-white hover:bg-black shadow-2xl shadow-black/20'}`}
-                          disabled={isPromoApplied}
+                          className={`px-5 md:px-8 py-3 md:py-4 rounded-[18px] md:rounded-[24px] font-black transition-all uppercase tracking-widest text-[10px] md:text-xs ${promoDiscountPercent > 0 ? 'bg-white text-primary' : 'bg-neutral-900 text-white hover:bg-black shadow-2xl shadow-black/20'}`}
+                          disabled={promoDiscountPercent > 0}
                         >
-                          {isPromoApplied ? 'Ok' : 'Yoxla'}
+                          {promoDiscountPercent > 0 ? 'Ok' : 'Yoxla'}
                         </button>
                       </div>
-                      {isPromoApplied && (
+                      {promoDiscountPercent > 0 && (
                         <div className="flex items-center justify-between text-white font-extrabold py-1">
-                          <span className="flex items-center gap-2 text-sm md:text-base"><TagIcon size={16} /> ENDİRİM (10%)</span>
-                          <span className="text-lg md:text-xl">-{(cartTotal / 0.9 * 0.1).toFixed(2)} ₼</span>
+                          <span className="flex items-center gap-2 text-sm md:text-base">
+                            <TagIcon size={16} /> ENDİRİM ({promoDiscountPercent}%)
+                          </span>
+                          <span className="text-lg md:text-xl">
+                            -
+                            {(
+                              (cartTotal /
+                                (1 - Math.min(90, promoDiscountPercent) / 100)) *
+                              (Math.min(90, promoDiscountPercent) / 100)
+                            ).toFixed(2)}{' '}
+                            ₼
+                          </span>
                         </div>
                       )}
                       <div className="h-px bg-white/10 my-2 md:my-4" />
