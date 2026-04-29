@@ -8,6 +8,7 @@ import { initMysqlPool, pingMysqlDetail, getMysqlPool } from "./database.js";
 import {
   ensureAdminsTable,
   seedAdminFromEnvIfEmpty,
+  trySeedAdminFromEnv,
   verifyAdminCredentials,
 } from "./adminMysql.js";
 const SESSION_COOKIE = "flamesushi_admin_session";
@@ -152,6 +153,58 @@ function attachApi(app: express.Application, cwd: string) {
       ...(d.mysqlCode ? { mysqlCode: d.mysqlCode } : {}),
       ...(d.mysqlHint ? { mysqlHint: d.mysqlHint } : {}),
     });
+  });
+
+  /**
+   * Boş admins üçün: .env — ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_BOOTSTRAP_TOKEN.
+   * Header: Authorization: Bearer <token> və ya x-admin-bootstrap: <token>
+   */
+  app.post("/api/setup/seed-first-admin", async (req, res) => {
+    const expected = process.env.ADMIN_BOOTSTRAP_TOKEN?.trim();
+    const given =
+      (typeof req.headers.authorization === "string"
+        ? req.headers.authorization.replace(/^Bearer\s+/i, "").trim()
+        : "") ||
+      (typeof req.headers["x-admin-bootstrap"] === "string"
+        ? String(req.headers["x-admin-bootstrap"]).trim()
+        : "");
+
+    if (!expected) {
+      res.status(503).json({
+        error:
+          "Hostingdə ADMIN_BOOTSTRAP_TOKEN əlavə edin (təsadüfi uzun mətn), sonra yenidən cəhd edin.",
+      });
+      return;
+    }
+    if (given !== expected) {
+      res.status(401).json({
+        error: "Yanlış token — Authorization: Bearer ... və ya x-admin-bootstrap",
+      });
+      return;
+    }
+
+    const pool = getMysqlPool();
+    if (!pool) {
+      res.status(503).json({ error: "MySQL yoxdur" });
+      return;
+    }
+
+    try {
+      await ensureAdminsTable(pool);
+      const r = await trySeedAdminFromEnv(pool);
+      if (r.seeded) {
+        res.json({ ok: true, message: r.message });
+        return;
+      }
+      const code = (r.adminsCount ?? 0) > 0 ? 409 : 400;
+      res.status(code).json({ ok: false, message: r.message });
+    } catch (e) {
+      console.error("[setup/seed-first-admin]", e);
+      res.status(500).json({
+        ok: false,
+        error: String(e instanceof Error ? e.message : e).slice(0, 240),
+      });
+    }
   });
 
   app.get("/api/catalog", async (_req, res) => {

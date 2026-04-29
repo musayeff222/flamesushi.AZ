@@ -18,27 +18,70 @@ export async function ensureAdminsTable(pool: Pool): Promise<void> {
   `);
 }
 
-/** .env dəki ADMIN_EMAIL + ADMIN_PASSWORD ilə bir admin yoxdursa əlavə edir (ilk qurulum). */
-export async function seedAdminFromEnvIfEmpty(pool: Pool): Promise<void> {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
-  if (!email || !password) return;
+export interface SeedOutcome {
+  /** true yalnız yeni sətir əlavə edildikdə */
+  seeded: boolean;
+  message: string;
+  /** admins cədvəlində mövcud sətir sayı */
+  adminsCount?: number;
+}
 
-  const [rows] = await pool.execute<RowDataPacket[]>(
+/**
+ * ADMIN_EMAIL + ADMIN_PASSWORD ilə ilk admin yaradılması (əgər admins boşdursa).
+ */
+export async function trySeedAdminFromEnv(pool: Pool): Promise<SeedOutcome> {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD ?? "";
+
+  const [cntRows] = await pool.execute<RowDataPacket[]>(
     `SELECT COUNT(*) AS cnt FROM admins`,
     [],
   );
-  const cnt = rows[0]?.cnt;
-  const n = typeof cnt === "bigint" ? Number(cnt) : Number(cnt ?? 0);
-  if (n > 0) return;
+  const raw = cntRows[0]?.cnt;
+  const count =
+    typeof raw === "bigint" ? Number(raw) : Number(raw ?? 0);
+
+  if (count > 0) {
+    return {
+      seeded: false,
+      message: `admins cədvəlində artıq ${count} administrator var`,
+      adminsCount: count,
+    };
+  }
+
+  if (!email || !String(password).length) {
+    return {
+      seeded: false,
+      message:
+        "ADMIN_EMAIL və ADMIN_PASSWORD təyin edilməyib — ilk giriş üçün hər ikisi lazımdır",
+      adminsCount: 0,
+    };
+  }
 
   const rounds = Number(process.env.BCRYPT_ROUNDS) || 12;
-  const hash = await bcrypt.hash(password, rounds);
+  const hash = await bcrypt.hash(String(password), rounds);
   await pool.execute(
     `INSERT INTO admins (email, password_hash) VALUES (?, ?)`,
     [email, hash],
   );
-  console.log(`[admin] İlkin administrator yaradıldı: ${email}`);
+
+  return {
+    seeded: true,
+    message: `Administrator yaradıldı: ${email}`,
+    adminsCount: 1,
+  };
+}
+
+/** Server start üçün — loqlar */
+export async function seedAdminFromEnvIfEmpty(pool: Pool): Promise<void> {
+  const r = await trySeedAdminFromEnv(pool);
+  if (r.seeded) {
+    console.log(`[admin] ${r.message}`);
+    return;
+  }
+  if (r.adminsCount === 0) {
+    console.warn(`[admin] ${r.message}`);
+  }
 }
 
 export async function verifyAdminCredentials(
