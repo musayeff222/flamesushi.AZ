@@ -4,6 +4,7 @@ import express, { type Request, type Response } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
+import { initMysqlPool, pingMysql } from "./database.js";
 
 const SESSION_COOKIE = "flamesushi_admin_session";
 
@@ -137,6 +138,11 @@ function attachApi(app: express.Application, cwd: string) {
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
   const adminSecretResolved = (): string | null => sessionSecret(adminPassword);
 
+  app.get("/api/health", async (_req, res) => {
+    const mysql = await pingMysql();
+    res.json({ ok: true, mysql });
+  });
+
   app.get("/api/catalog", async (_req, res) => {
     try {
       const catalog = await readCatalogDisk(cwd);
@@ -228,6 +234,8 @@ async function startServer() {
   const cwd = process.cwd();
   const PORT = Number(process.env.PORT) || 3000;
 
+  initMysqlPool();
+
   app.use(express.json({ limit: "2mb" }));
   attachApi(app, cwd);
 
@@ -246,9 +254,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, "0.0.0.0", async () => {
     console.log(`Server running at http://localhost:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+    const db = await pingMysql();
+    if (db === "ok") console.log("[mysql] Bağlantı hazırdır.");
+    else if (db === "error") console.warn("[mysql] Bağlantı uğursuz — .env yoxlayın.");
   });
 }
 
