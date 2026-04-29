@@ -4,7 +4,7 @@ import express, { type Request, type Response } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
-import { initMysqlPool, pingMysql, getMysqlPool } from "./database.js";
+import { initMysqlPool, pingMysqlDetail, getMysqlPool } from "./database.js";
 import {
   ensureAdminsTable,
   seedAdminFromEnvIfEmpty,
@@ -145,8 +145,13 @@ async function writeCatalogDisk(cwd: string, catalog: CatalogPayload) {
 
 function attachApi(app: express.Application, cwd: string) {
   app.get("/api/health", async (_req, res) => {
-    const mysql = await pingMysql();
-    res.json({ ok: true, mysql });
+    const d = await pingMysqlDetail();
+    res.json({
+      ok: true,
+      mysql: d.mysql,
+      ...(d.mysqlCode ? { mysqlCode: d.mysqlCode } : {}),
+      ...(d.mysqlHint ? { mysqlHint: d.mysqlHint } : {}),
+    });
   });
 
   app.get("/api/catalog", async (_req, res) => {
@@ -298,9 +303,14 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", async () => {
     console.log(`Server running at http://localhost:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-    const db = await pingMysql();
-    if (db === "ok") console.log("[mysql] Bağlantı hazırdır.");
-    else if (db === "error") console.warn("[mysql] Bağlantı uğursuz — .env yoxlayın.");
+    const d = await pingMysqlDetail();
+    if (d.mysql === "ok") console.log("[mysql] Bağlantı hazırdır.");
+    else if (d.mysql === "skipped")
+      console.warn("[mysql] Aktiv deyil — MYSQL_USER / MYSQL_DATABASE yazın.");
+    else
+      console.warn(
+        `[mysql] Xəta (${d.mysqlCode ?? "?"}): ${d.mysqlHint ?? "—"}`,
+      );
   });
 }
 
