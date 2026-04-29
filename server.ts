@@ -7,6 +7,8 @@ import { createServer as createViteServer } from "vite";
 import { initMysqlPool, pingMysqlDetail, getMysqlPool } from "./database.js";
 import {
   ensureAdminsTable,
+  listAdminEmailsForDiagnostic,
+  normalizeEmailForAuth,
   replaceAllAdminsFromEnv,
   seedAdminFromEnvIfEmpty,
   trySeedAdminFromEnv,
@@ -50,7 +52,8 @@ function signingSecret(): string | null {
   const explicit = process.env.ADMIN_SESSION_SECRET?.trim();
   if (explicit) return explicit;
   const db = process.env.MYSQL_DATABASE?.trim();
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const envMail = process.env.ADMIN_EMAIL?.trim();
+  const email = envMail ? normalizeEmailForAuth(envMail) : "";
   if (db && email) {
     return crypto
       .createHash("sha256")
@@ -284,6 +287,68 @@ function attachApi(app: express.Application, cwd: string) {
     }
   });
 
+  /** Bootstrap token ilə: bazada hansı e-poçtların olduğunu və .env ilə uyğunluğu göstərir. */
+  app.get("/api/setup/admin-diagnostic", async (req, res) => {
+    const expected = process.env.ADMIN_BOOTSTRAP_TOKEN?.trim();
+    const given = readBootstrapToken(req);
+
+    if (!expected) {
+      res.status(503).json({
+        error:
+          "Hostingdə ADMIN_BOOTSTRAP_TOKEN təyin olunmayıb — diaqnostika üçün lazımdır.",
+      });
+      return;
+    }
+    if (given !== expected) {
+      res.status(401).json({
+        error: "Yanlış token — Authorization: Bearer ... və ya x-admin-bootstrap",
+      });
+      return;
+    }
+
+    const pool = getMysqlPool();
+    if (!pool) {
+      res.status(503).json({ error: "MySQL yoxdur", mysqlConfigured: false });
+      return;
+    }
+
+    try {
+      await ensureAdminsTable(pool);
+      const admins = await listAdminEmailsForDiagnostic(pool);
+      const envEmailRaw = process.env.ADMIN_EMAIL?.trim();
+      const adminEmailNormalized = envEmailRaw
+        ? normalizeEmailForAuth(envEmailRaw)
+        : null;
+
+      let envMismatch = false;
+      if (adminEmailNormalized && admins.length > 0) {
+        const hit = admins.some(
+          (a) => a.normalized === adminEmailNormalized,
+        );
+        envMismatch = !hit;
+      }
+
+      res.json({
+        ok: true,
+        mysqlDatabase: process.env.MYSQL_DATABASE?.trim() ?? null,
+        adminEmailFromEnvNormalized: adminEmailNormalized,
+        adminsInDatabase: admins,
+        envAdminPresentInDb:
+          adminEmailNormalized === null
+            ? null
+            : admins.some((a) => a.normalized === adminEmailNormalized),
+        hint: envMismatch
+          ? "ADMIN_EMAIL .env-dəki normalizədən sonra bazada yoxdur — POST /api/setup/replace-admin-from-env işlədin."
+          : undefined,
+      });
+    } catch (e) {
+      console.error("[setup/admin-diagnostic]", e);
+      res.status(500).json({
+        error: String(e instanceof Error ? e.message : e).slice(0, 240),
+      });
+    }
+  });
+
   app.get("/api/catalog", async (_req, res) => {
     try {
       const catalog = await readCatalogDisk(cwd);
@@ -337,7 +402,7 @@ function attachApi(app: express.Application, cwd: string) {
 
     const emailRaw = typeof req.body?.email === "string" ? req.body.email : "";
     const pwdRaw = typeof req.body?.password === "string" ? req.body.password : "";
-    const email = emailRaw.trim().toLowerCase();
+    const email = normalizeEmailForAuth(emailRaw);
 
     if (!email || !pwdRaw) {
       res.status(400).json({ error: "E-poçt və şifrə tələb olunur" });
@@ -356,7 +421,7 @@ function attachApi(app: express.Application, cwd: string) {
           break;
         case "email_not_found":
           msg =
-            "Bu e-poçt administrator siyahısında tapılmadı. Əgər .env uyğunsuzluğu varsa, hostingdə bir dəfə POST /api/setup/replace-admin-from-env (bootstrap token) işlədin, sonra .env-dəki ADMIN_EMAIL ilə giriş edin.";
+            "Bu e-poçt uyğun gəlmir. GET /api/setup/admin-diagnostic (bootstrap token) ilə bazadakı e-poçtları yoxlayın; sonra POST /api/setup/replace-admin-from-env və ya eyni normalizə olunmuş ünvanla giriş edin.";
           code = "EMAIL_NOT_FOUND";
           break;
         case "password_not_configured":

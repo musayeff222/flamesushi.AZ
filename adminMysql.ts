@@ -2,7 +2,15 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 import bcrypt from "bcryptjs";
 
 interface AdminPwdRow extends RowDataPacket {
+  email: string;
   password_hash: string;
+}
+
+/**
+ * Giriş / .env üçün eyni format — MySQL LOWER(TRIM) ilə uyğunlaşmayan Unicode hallarını bağlayır.
+ */
+export function normalizeEmailForAuth(raw: string): string {
+  return raw.normalize("NFKC").trim().toLowerCase();
 }
 
 /** MySQLdə admins cədvəli — e-poçt + bcrypt şifrə. */
@@ -30,7 +38,8 @@ export interface SeedOutcome {
  * ADMIN_EMAIL + ADMIN_PASSWORD ilə ilk admin yaradılması (əgər admins boşdursa).
  */
 export async function trySeedAdminFromEnv(pool: Pool): Promise<SeedOutcome> {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const envEmail = process.env.ADMIN_EMAIL ?? "";
+  const email = envEmail ? normalizeEmailForAuth(envEmail) : "";
   const password = process.env.ADMIN_PASSWORD ?? "";
 
   const [cntRows] = await pool.execute<RowDataPacket[]>(
@@ -94,37 +103,58 @@ export type VerifyLoginResult =
   | { ok: true }
   | { ok: false; reason: LoginFailReason };
 
-/** Giriş üçün dəqiq səbəb — 401 mesajları üçün */
+/** Cədvəl kiçik olduğu üçün müqayisə JS-də (Unicode + gizli simvollar üçün). */
 export async function verifyAdminLogin(
   pool: Pool,
   emailNorm: string,
   passwordPlain: string,
 ): Promise<VerifyLoginResult> {
   const [rows] = await pool.execute<AdminPwdRow[]>(
-    `SELECT password_hash FROM admins WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
-    [emailNorm],
+    `SELECT email, password_hash FROM admins`,
   );
-  const row = rows[0];
-  const hash =
-    typeof row?.password_hash === "string" ? row.password_hash.trim() : "";
 
-  if (hash.length > 0) {
-    const match = await bcrypt.compare(passwordPlain, row!.password_hash);
-    return match ? { ok: true } : { ok: false, reason: "wrong_password" };
+  if (rows.length === 0) {
+    return { ok: false, reason: "no_admins" };
   }
 
-  if (row !== undefined) {
+  const match = rows.find(
+    (r) => normalizeEmailForAuth(String(r.email)) === emailNorm,
+  );
+
+  if (!match) {
+    return { ok: false, reason: "email_not_found" };
+  }
+
+  const hash =
+    typeof match.password_hash === "string"
+      ? match.password_hash.trim()
+      : "";
+
+  if (hash.length === 0) {
     return { ok: false, reason: "password_not_configured" };
   }
 
-  const [cntRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT COUNT(*) AS cnt FROM admins`,
-    [],
-  );
-  const raw = cntRows[0]?.cnt;
-  const n = typeof raw === "bigint" ? Number(raw) : Number(raw ?? 0);
-  if (n === 0) return { ok: false, reason: "no_admins" };
-  return { ok: false, reason: "email_not_found" };
+  const passwordOk = await bcrypt.compare(passwordPlain, match.password_hash);
+  return passwordOk ? { ok: true } : { ok: false, reason: "wrong_password" };
+}
+
+export type AdminEmailDiagnosticRow = {
+  id: number;
+  raw: string;
+  normalized: string;
+};
+
+export async function listAdminEmailsForDiagnostic(
+  pool: Pool,
+): Promise<AdminEmailDiagnosticRow[]> {
+  const [rows] = await pool.execute<
+    (RowDataPacket & { id: number; email: string })[]
+  >(`SELECT id, email FROM admins ORDER BY id`);
+  return rows.map((r) => ({
+    id: Number(r.id),
+    raw: String(r.email),
+    normalized: normalizeEmailForAuth(String(r.email)),
+  }));
 }
 
 export async function verifyAdminCredentials(
@@ -148,7 +178,8 @@ export interface AdminReplaceResult {
 export async function replaceAllAdminsFromEnv(
   pool: Pool,
 ): Promise<AdminReplaceResult> {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const raw = process.env.ADMIN_EMAIL ?? "";
+  const email = raw ? normalizeEmailForAuth(raw) : "";
   const password = process.env.ADMIN_PASSWORD ?? "";
 
   if (!email || !String(password).length) {
