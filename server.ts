@@ -9,7 +9,7 @@ import {
   ensureAdminsTable,
   seedAdminFromEnvIfEmpty,
   trySeedAdminFromEnv,
-  verifyAdminCredentials,
+  verifyAdminLogin,
 } from "./adminMysql.js";
 const SESSION_COOKIE = "flamesushi_admin_session";
 
@@ -267,9 +267,27 @@ function attachApi(app: express.Application, cwd: string) {
       return;
     }
 
-    const ok = await verifyAdminCredentials(mysqlPool, email, pwdRaw);
-    if (!ok) {
-      res.status(401).json({ error: "E-poçt və ya şifrə yanlışdır" });
+    const result = await verifyAdminLogin(mysqlPool, email, pwdRaw);
+    if (result.ok === false) {
+      let msg: string;
+      let code: string;
+      switch (result.reason) {
+        case "no_admins":
+          msg =
+            "Administrator hələ yaradılmayıb: hostingdə ADMIN_EMAIL və ADMIN_PASSWORD təyin edib Node-u restart edin və ya /api/setup/seed-first-admin ilə seed edin.";
+          code = "NO_ADMINS";
+          break;
+        case "email_not_found":
+          msg = "Bu e-poçt ilə qeydiyyat tapılmadı.";
+          code = "EMAIL_NOT_FOUND";
+          break;
+        case "wrong_password":
+        default:
+          msg = "Şifrə yanlışdır.";
+          code = "WRONG_PASSWORD";
+          break;
+      }
+      res.status(401).json({ error: msg, code });
       return;
     }
 

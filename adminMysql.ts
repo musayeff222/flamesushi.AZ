@@ -84,16 +84,43 @@ export async function seedAdminFromEnvIfEmpty(pool: Pool): Promise<void> {
   }
 }
 
-export async function verifyAdminCredentials(
+export type LoginFailReason = "no_admins" | "email_not_found" | "wrong_password";
+
+export type VerifyLoginResult =
+  | { ok: true }
+  | { ok: false; reason: LoginFailReason };
+
+/** Giriş üçün dəqiq səbəb — 401 mesajları üçün */
+export async function verifyAdminLogin(
   pool: Pool,
   emailNorm: string,
   passwordPlain: string,
-): Promise<boolean> {
+): Promise<VerifyLoginResult> {
   const [rows] = await pool.execute<AdminPwdRow[]>(
     `SELECT password_hash FROM admins WHERE email = ? LIMIT 1`,
     [emailNorm],
   );
   const row = rows[0];
-  if (!row?.password_hash) return false;
-  return bcrypt.compare(passwordPlain, row.password_hash);
+  if (row?.password_hash) {
+    const match = await bcrypt.compare(passwordPlain, row.password_hash);
+    return match ? { ok: true } : { ok: false, reason: "wrong_password" };
+  }
+
+  const [cntRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT COUNT(*) AS cnt FROM admins`,
+    [],
+  );
+  const raw = cntRows[0]?.cnt;
+  const n = typeof raw === "bigint" ? Number(raw) : Number(raw ?? 0);
+  if (n === 0) return { ok: false, reason: "no_admins" };
+  return { ok: false, reason: "email_not_found" };
+}
+
+export async function verifyAdminCredentials(
+  pool: Pool,
+  emailNorm: string,
+  passwordPlain: string,
+): Promise<boolean> {
+  const r = await verifyAdminLogin(pool, emailNorm, passwordPlain);
+  return r.ok === true;
 }
