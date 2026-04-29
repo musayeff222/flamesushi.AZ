@@ -1,36 +1,51 @@
-# Hostinger Node.js-də Bu Tətbiqin Yerləşdirilməsi (Deployment)
+# Hostinger Node.js — GitHub üzərindən qurulum
 
-Flame Sushi tətbiqini Hostinger Node.js hostinqində işə salmaq üçün bu addımları izləyin:
+İki əsas fayl var:
 
-### 1. Faylları Hazırlayın
-Bütün kodu (lazım olmayan `node_modules` və `dist` qovluqları istisna olmaqla) ZIP formasına salın və Hostinger-in **File Manager** (Fayl Meneceri) vasitəsilə yükləyin.
+| Fayl | Rol |
+|------|-----|
+| **`server.js`** (layihə kökündə) | Hostinger də «Application Startup File» kimi adətən **`server.js`** gözləyir — bu nöqtədə giriş faylıdır və `dist-server/server.js`-i yükləyir. |
+| **`dist-server/server.js`** | `server.ts`-dən `npm run build` ilə yaranır; repoda saxlanmir ( `.gitignore` ). |
 
-### 2. Hostinger Panelində Node.js Setup
-Hostinger panelində "Node.js" bölməsinə daxil olun və aşağıdakı ayarları edin:
-- **Node.js Version:** 20 və ya daha yuxarı versiyanı seçin.
-- **Application Root:** `/` (və ya kodu hansı qovluğa yükləmisinizsə ora).
-- **Application URL:** Domen adınız.
-- **Application Startup File:** `server.ts`
+Ümumi xəta: paneldə `server.ts` və ya ən köhnə konfiq seçilib — **kökdə olan `server.js`** və ya ən sonda yazılan **`npm start`** istifadə edin.
 
-### 3. Asılılıqları Quraşdırın (Installing Dependencies)
-Panelin içindəki **Terminal**-da və ya panelin düyməsi ilə bu əmri işə salın:
+### 1. GitHub-da (və ya lokaldə) build əmrləri
+
 ```bash
 npm install
-```
-
-### 4. Tətbiqi Build Edin
-Tətbiqin brauzerdə işləyən hissəsini hazırlamaq üçün bu əmri verin:
-```bash
 npm run build
 ```
 
-### 5. Tətbiqi İşə Salın (Start)
-Hostinger panelində "Start Table" və ya "Run" düyməsini sıxın. Əgər panel yoxdursa, terminalda:
-```bash
-npm start
-```
+Bu addımla **`dist/`** (Vite SPA) və **`dist-server/`** (compile olunmuş backend) yaradılır.
 
-### Əlavə Qeydlər:
-- Tətbiq avtomatik olaraq `dist` qovluğundan statik faylları oxuyur.
-- Port ayarı Hostinger tərəfindən idarə olunur, lakin server kodumuz `process.env.PORT` dəyərini avtomatik tanıyır.
-- Əgər `tsx` tapılmasa, `npm install -g tsx` edə bilərsiniz, lakin tətbiq içində artıq quraşdırılıb.
+### 2. Hostinger Node.js panel
+
+- **Node.js versiyası:** 20 və ya daha yeni.
+- **Application root:** Repozitoriyanın yerləşdiyi qovluq (növbəti nöqtədə `package.json`-ın olduğu yer).
+- **Application startup file:** **`server.js`**
+  - Kökdə olan **boş shim yoxdur** — `server.js` real girişdir; əsas məntiq `dist-server/` içindədir.
+- Əgər panel ayrıca **Build komandası** verirsə məsələn Git deploy üçün:
+  - **Install:** `npm install`
+  - **Build:** `npm run build`
+  - **Start:** `npm start` (startup faylı yenə **`server.js`** seçilə bilər; **`npm start`** `NODE_ENV=production` ilə işlədir.)
+
+### 3. Mühiti təyin etmək
+
+Layihənin production rejimində olduğundan əmin olun (statiklər `dist/`-dən gedir):
+
+- **Variant A:** Paneldə **Environment Variable:** `NODE_ENV` = `production`
+- **Variant B:** Yalnız **`npm start`** işlədin (skriptdə `cross-env NODE_ENV=production` var.)
+
+### 4. Port
+
+Hostinger `process.env.PORT` verir. Kod `PORT`-u rəqəm kimi oxuyur; əlavə konfiq tələb etməyə bilər.
+
+### 5. `npm install --omit=dev` xəbərdarlığı
+
+Əgər hosting yalnız **production** asılılıqları quraşdırırsa, **`vite build`** və **`tsc`** işləməz (onlar çox vaxt `devDependencies`-də olur).
+
+Həlli: **Layihədə `npm install` (tam)** ilə build etmək**, və ya VPS/panel parametrlərində `--omit=dev` olmasın.**
+
+### Köhnə üsul (ZIP ilə yükləmə)
+
+Əvvəlki kimi Fayl Meneceri ilə yükləyəndə də sıra eynidir: yükləmə → **`npm install`** → **`npm run build`** → tətbiqi işə sal.

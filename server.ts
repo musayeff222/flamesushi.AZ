@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // JSON parsing support
   app.use(express.json());
@@ -21,8 +21,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Production static files
-    const distPath = path.join(__dirname, "dist");
+    // Production static files (cwd = app root on Hostinger / after build)
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     
     // SPA fallback for all other routes
