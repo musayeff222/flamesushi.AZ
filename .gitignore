@@ -3,6 +3,7 @@ build/
 dist/
 dist-server/
 coverage/
+data/catalog.json
 .DS_Store
 *.log
 .env*

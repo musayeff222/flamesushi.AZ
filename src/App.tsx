@@ -17,14 +17,15 @@ import {
   ChevronLeft,
   Clock, 
   ArrowRight,
-  MessageCircle,
+
   Truck,
   Store,
   CreditCard,
   Wallet,
   Tag as TagIcon
 } from 'lucide-react';
-import { PRODUCTS, CATEGORIES, BUSINESS_HOURS, WHATSAPP_NUMBER, Product, Category } from './constants.ts';
+import type { Product, Category } from './constants.ts';
+import { useCatalog } from './CatalogContext.tsx';
 
 // --- Types ---
 type Page = 'home' | 'cart' | 'about' | 'checkout';
@@ -57,7 +58,13 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
   );
 };
 
-const WhatsAppPopup = ({ onClose }: { onClose: () => void }) => {
+const WhatsAppPopup = ({
+  onClose,
+  whatsappDigits,
+}: {
+  onClose: () => void;
+  whatsappDigits: string;
+}) => {
   return (
     <motion.div 
       className="fixed bottom-24 right-6 left-6 z-50 pointer-events-none"
@@ -67,7 +74,7 @@ const WhatsAppPopup = ({ onClose }: { onClose: () => void }) => {
     >
       <div className="bg-white p-4 rounded-3xl shadow-2xl border border-neutral-100 flex items-center justify-between pointer-events-auto">
         <a 
-          href={`https://wa.me/${WHATSAPP_NUMBER}`}
+          href={`https://wa.me/${whatsappDigits}`}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-3 flex-1"
@@ -96,6 +103,12 @@ const WhatsAppPopup = ({ onClose }: { onClose: () => void }) => {
 };
 
 export default function App() {
+  const { catalog } = useCatalog();
+  const PRODUCTS = catalog.products;
+  const CATEGORIES = catalog.categories;
+  const BUSINESS_HOURS = catalog.businessHours;
+  const whatsappDigits = catalog.whatsapp.replace(/\D/g, '');
+
   const [showSplash, setShowSplash] = useState(true);
   const [activePage, setActivePage] = useState<Page>('home');
   const [selectedCategory, setSelectedCategory] = useState<string>('sets');
@@ -129,6 +142,13 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [showSplash]);
+
+  useEffect(() => {
+    const ids = new Set(CATEGORIES.map((c) => c.id));
+    setSelectedCategory((prev) =>
+      ids.has(prev) ? prev : (CATEGORIES[0]?.id ?? 'sets'),
+    );
+  }, [CATEGORIES]);
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -170,12 +190,16 @@ export default function App() {
   };
 
   const [bannerIndex, setBannerIndex] = useState(0);
-  const popularProducts = useMemo(() => PRODUCTS.filter(p => p.popular), []);
+  const popularProducts = useMemo(
+    () => PRODUCTS.filter((p) => p.popular),
+    [PRODUCTS],
+  );
 
   useEffect(() => {
     if (activePage === 'home') {
       const interval = setInterval(() => {
-        setBannerIndex(prev => (prev + 1) % popularProducts.length);
+        const n = popularProducts.length || 1;
+        setBannerIndex((prev) => (prev + 1) % n);
       }, 4000);
       return () => clearInterval(interval);
     }
@@ -194,7 +218,7 @@ export default function App() {
     
     const message = `🔥 *YENİ SİFARİŞ - FLAME SUSHI*%0A%0A👤 *Müştəri:* ${customerName}%0A📦 *Növ:* ${typeText}${orderType === 'delivery' ? `%0A📍 *Ünvan:* ${address}` : ''}%0A💳 *Ödəniş:* ${paymentText}%0A%0A🛒 *Məhsullar:*%0A${itemsText}%0A%0A💰 *Cəmi:* ${totalText}${isPromoApplied ? ' (10% Endirim tətbiq edildi)' : ''}`;
     
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, '_blank');
+    window.open(`https://wa.me/${whatsappDigits}?text=${message}`, '_blank');
   };
 
   if (showSplash) return <SplashScreen onFinish={() => setShowSplash(false)} />;
@@ -613,7 +637,7 @@ export default function App() {
                       </div>
                     </div>
                     <a 
-                      href={`https://wa.me/${WHATSAPP_NUMBER}`}
+                      href={`https://wa.me/${whatsappDigits}`}
                       target="_blank"
                       rel="noreferrer"
                       className="flex items-center justify-between lg:justify-start gap-4 md:gap-8 bg-white px-6 md:px-12 py-6 md:py-8 rounded-[28px] md:rounded-[36px] group transition-all shadow-2xl shadow-black/10 hover:scale-105 active:scale-95 relative z-10 w-full lg:w-auto"
@@ -677,7 +701,10 @@ export default function App() {
       {/* --- Popups & FABs --- */}
       <AnimatePresence>
         {showWAPopup && activePage === 'home' && (
-          <WhatsAppPopup onClose={() => setShowWAPopup(false)} />
+          <WhatsAppPopup
+            whatsappDigits={whatsappDigits}
+            onClose={() => setShowWAPopup(false)}
+          />
         )}
       </AnimatePresence>
 
@@ -688,7 +715,7 @@ export default function App() {
             initial={{ scale: 0, opacity: 0, rotate: -45 }}
             animate={{ scale: 1, opacity: 1, rotate: 0 }}
             exit={{ scale: 0, opacity: 0, rotate: 45 }}
-            href={`https://wa.me/${WHATSAPP_NUMBER}`}
+            href={`https://wa.me/${whatsappDigits}`}
             target="_blank"
             rel="noreferrer"
             className="fixed bottom-28 right-6 sm:right-10 z-40 w-16 h-16 bg-white rounded-[24px] flex items-center justify-center shadow-[0_20px_50px_rgba(34,197,94,0.3)] hover:scale-110 active:scale-95 transition-all border-4 border-green-500 p-2.5 group"

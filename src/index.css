@@ -37,6 +37,12 @@
   @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
 }
 
+.admin-scope,
+.admin-scope * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* Custom scrollbar for horizontal scrolling */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
