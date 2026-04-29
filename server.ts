@@ -263,8 +263,18 @@ async function startServer() {
   initMysqlPool();
   const pool = getMysqlPool();
   if (pool) {
-    await ensureAdminsTable(pool);
-    await seedAdminFromEnvIfEmpty(pool);
+    try {
+      await ensureAdminsTable(pool);
+      await seedAdminFromEnvIfEmpty(pool);
+    } catch (err) {
+      console.error(
+        "[mysql/admin] Migrasiya / seed zamanı xəta — əsas sayt işləsin deyə server davam edir:",
+        err,
+      );
+      console.warn(
+        "[mysql/admin] phpMyHosting-də MYSQL_HOST/USER/PASSWORD və icazələri yoxlayın.",
+      );
+    }
   }
 
   app.use(express.json({ limit: "2mb" }));
