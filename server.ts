@@ -1,5 +1,6 @@
 import "dotenv/config";
 import crypto from "node:crypto";
+import { mkdirSync } from "node:fs";
 import express, { type Request, type Response } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
   updateAdminPassword,
   verifyAdminLogin,
 } from "./adminMysql.js";
+import multer from "multer";
 const SESSION_COOKIE = "flamesushi_admin_session";
 
 interface CatalogPayload {
@@ -232,6 +234,89 @@ async function writeCatalogDisk(cwd: string, catalog: CatalogPayload) {
 }
 
 function attachApi(app: express.Application, cwd: string) {
+  const uploadsDir = path.join(cwd, "data", "uploads");
+  mkdirSync(uploadsDir, { recursive: true });
+  app.use("/uploads", express.static(uploadsDir));
+
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        cb(null, uploadsDir);
+      },
+      filename: (_req, file, cb) => {
+        const extRaw = path.extname(file.originalname).toLowerCase();
+        const safe =
+          extRaw === ".jpg" ||
+          extRaw === ".jpeg" ||
+          extRaw === ".png" ||
+          extRaw === ".webp" ||
+          extRaw === ".gif"
+            ? extRaw
+            : ".jpg";
+        cb(
+          null,
+          `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${safe}`,
+        );
+      },
+    }),
+    limits: { fileSize: 6 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (/^image\/(jpeg|pjpeg|png|gif|webp)$/i.test(file.mimetype)) {
+        cb(null, true);
+        return;
+      }
+      cb(
+        new Error(
+          "Yalnız şəkil (JPEG, PNG, WebP, GIF) — cihaz yaddaşından seçin",
+        ),
+      );
+    },
+  });
+
+  const guardAdminUpload: express.RequestHandler = (req, res, next) => {
+    const secret = signingSecret();
+    if (!secret) {
+      res.status(503).json({
+        error:
+          "ADMIN_SESSION_SECRET və ya ADMIN_EMAIL + MYSQL_DATABASE tələb olunur",
+      });
+      return;
+    }
+    const tok = getSessionToken(req);
+    if (!tok || !parseVerifiedSessionToken(tok, secret)) {
+      res.status(401).json({ error: "Giriş tələb olunur" });
+      return;
+    }
+    next();
+  };
+
+  app.post("/api/admin/upload", guardAdminUpload, (req, res) => {
+    upload.single("file")(req, res, (err: unknown) => {
+      if (err) {
+        const code =
+          err &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code?: string }).code === "LIMIT_FILE_SIZE";
+        res.status(code ? 413 : 400).json({
+          error: code
+            ? "Fayl ən çox 6 MB ola bilər"
+            : err instanceof Error && err.message
+              ? err.message
+              : "Yükləmə alınmadı",
+        });
+        return;
+      }
+      type Multered = Request & { file?: { filename: string } };
+      const mf = req as Multered;
+      if (!mf.file?.filename) {
+        res.status(400).json({ error: "Şəkil faylı seçin (cihazdan)" });
+        return;
+      }
+      res.json({ ok: true, url: `/uploads/${mf.file.filename}` });
+    });
+  });
+
   app.get("/api/health", async (_req, res) => {
     const d = await pingMysqlDetail();
     const dbName =
@@ -400,6 +485,12 @@ function attachApi(app: express.Application, cwd: string) {
   });
 
   app.get("/api/catalog", async (_req, res) => {
+    /** Canlı menyunu keşdə köhnə saxlamasin — dəyişiklik dərhal görünməlidir */
+    res.setHeader(
+      "Cache-Control",
+      "private, no-cache, no-store, must-revalidate",
+    );
+    res.setHeader("Pragma", "no-cache");
     try {
       const catalog = await readCatalogDisk(cwd);
       res.json(catalog);

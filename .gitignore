@@ -4,6 +4,8 @@ dist/
 dist-server/
 coverage/
 data/catalog.json
+data/uploads/*
+!data/uploads/.gitkeep
 .DS_Store
 *.log
 .env*

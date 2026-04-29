@@ -10,8 +10,8 @@ import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <CatalogProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <CatalogProvider>
         <Routes>
           <Route path={ADMIN_ROUTES.login} element={<AdminLogin />} />
           <Route
@@ -21,7 +21,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path={ADMIN_ROUTES.panel} element={<AdminPanel />} />
           <Route path="/*" element={<App />} />
         </Routes>
-      </BrowserRouter>
-    </CatalogProvider>
+      </CatalogProvider>
+    </BrowserRouter>
   </StrictMode>,
 );

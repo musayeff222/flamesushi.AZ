@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { CatalogState } from '../types/catalog.ts';
+import { AdminLocalImageInput } from './AdminLocalImageInput.tsx';
 
 type Props = {
   draft: CatalogState;
@@ -29,7 +30,7 @@ export function AdminBannersTab({ draft, setDraft, dark }: Props) {
   return (
     <div className="space-y-6 max-w-3xl">
       <p className={dark ? 'text-sm text-neutral-400' : 'text-sm text-neutral-500'}>
-        Ana səhifə karuselində sıra ilə şəkil URL-ləri və hər slayt üçün (istəyə bağlı) vurğulanan məhsul.
+        Ana səhifə karuseli — şəkilləri cihazdan yükləyin; hər slayt üçün məhsul (istəyə bağlı).
       </p>
 
       <div className={card}>
@@ -88,22 +89,22 @@ export function AdminBannersTab({ draft, setDraft, dark }: Props) {
                 : 'flex flex-col sm:flex-row gap-2 p-3 rounded-2xl border border-neutral-200 bg-white'
             }
           >
-            <div className="flex-1 min-w-0">
-              <label className={dark ? `${label} mb-1` : `${label} mb-1`}>
-                Şəkil URL #{idx + 1}
-              </label>
-              <input
-                className={input}
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <AdminLocalImageInput
+                dark={dark}
+                label={`Baner şəkli #${idx + 1}`}
+                hint="Yalnız cihaz yaddaşından (qalereya və ya fayllar)."
                 value={url}
-                placeholder="https://..."
-                onChange={(e) => {
-                  const v = e.target.value;
+                onChange={(next) => {
                   setDraft((d) => {
                     const urls = [...d.siteBanners.heroImageUrls];
-                    urls[idx] = v;
+                    urls[idx] = next;
                     return {
                       ...d,
-                      siteBanners: { ...d.siteBanners, heroImageUrls: urls },
+                      siteBanners: {
+                        ...d.siteBanners,
+                        heroImageUrls: urls,
+                      },
                     };
                   });
                 }}
