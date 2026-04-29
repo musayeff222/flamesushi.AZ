@@ -22,6 +22,7 @@ import {
 import type { CatalogState, Category, Product } from '../types/catalog.ts';
 import { useCatalog } from '../CatalogContext.tsx';
 import { defaultCatalogState } from '../catalogDefaults.ts';
+import { ADMIN_ROUTES } from './paths.ts';
 
 type Tab = 'products' | 'categories' | 'site';
 
@@ -83,7 +84,7 @@ export default function AdminPanel() {
         return;
       }
       if (!auth.authenticated) {
-        navigate('/loginadminboss', { replace: true });
+        navigate(ADMIN_ROUTES.login, { replace: true });
         return;
       }
       setLoggedIn(true);
@@ -96,7 +97,7 @@ export default function AdminPanel() {
 
   const logout = useCallback(async () => {
     await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
-    navigate('/loginadminboss', { replace: true });
+    navigate(ADMIN_ROUTES.login, { replace: true });
   }, [navigate]);
 
   const saveAll = useCallback(async () => {

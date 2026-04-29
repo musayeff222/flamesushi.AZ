@@ -1,42 +1,118 @@
-import { useState, type FormEvent } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  type FormEvent,
+} from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Lock, Flame, ArrowRight, Mail } from 'lucide-react';
+import { Lock, Flame, ArrowRight, Mail, Zap, Trash2 } from 'lucide-react';
+import { ADMIN_ROUTES } from './paths.ts';
+
+/** Yalnız bu brauzer; şifrənin burada saxlanması risklidır — seçim aktiv olanda */
+const QUICK_LOGIN_STORAGE = 'flamesushi_admin_quick_login_v1';
+
+type SavedCred = { email: string; password: string };
+
+function readSaved(): SavedCred | null {
+  try {
+    const raw = localStorage.getItem(QUICK_LOGIN_STORAGE);
+    if (!raw) return null;
+    const j = JSON.parse(raw) as unknown;
+    if (!j || typeof j !== 'object') return null;
+    const email = String((j as SavedCred).email ?? '').trim();
+    const password = String((j as SavedCred).password ?? '');
+    if (!email || !password) return null;
+    return { email, password };
+  } catch {
+    return null;
+  }
+}
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberOnDevice, setRememberOnDevice] = useState(false);
+  const [hasSavedCred, setHasSavedCred] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const s = readSaved();
+    setHasSavedCred(Boolean(s));
+    if (s) {
+      setEmail(s.email);
+      setPassword(s.password);
+      setRememberOnDevice(true);
+    }
+  }, []);
+
+  const performLogin = useCallback(
+    async (emailTrimmed: string, pwd: string) => {
+      setError('');
+      setLoading(true);
+      try {
+        const r = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email: emailTrimmed, password: pwd }),
+        });
+        const data = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        if (!r.ok) {
+          const prefix = data.code ? `[${data.code}] ` : '';
+          setError(
+            `${prefix}${data.error || 'Giriş uğursuz oldu (401 — e-poçt və ya şifrə yanlışdır)'}`,
+          );
+          return;
+        }
+
+        if (rememberOnDevice) {
+          try {
+            localStorage.setItem(
+              QUICK_LOGIN_STORAGE,
+              JSON.stringify({ email: emailTrimmed, password: pwd }),
+            );
+            setHasSavedCred(true);
+          } catch {
+            /* dəyişən / gizli rejim */
+          }
+        } else {
+          localStorage.removeItem(QUICK_LOGIN_STORAGE);
+          setHasSavedCred(false);
+        }
+
+        navigate(ADMIN_ROUTES.panel, { replace: true });
+      } catch {
+        setError('Şəbəkə xətası');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [navigate, rememberOnDevice],
+  );
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const r = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-      const data = (await r.json().catch(() => ({}))) as {
-        error?: string;
-        code?: string;
-      };
-      if (!r.ok) {
-        const prefix = data.code ? `[${data.code}] ` : "";
-        setError(
-          `${prefix}${data.error || "Giriş uğursuz oldu (401 — e-poçt və ya şifrə yanlışdır)"}`,
-        );
-        return;
-      }
-      navigate('/admin', { replace: true });
-    } catch {
-      setError('Şəbəkə xətası');
-    } finally {
-      setLoading(false);
-    }
+    await performLogin(email.trim(), password);
+  }
+
+  /** Saxlanmış məlumatla bir toxunuşla giriş */
+  async function handleQuickLogin() {
+    const s = readSaved();
+    if (!s) return;
+    setEmail(s.email);
+    setPassword(s.password);
+    await performLogin(s.email, s.password);
+  }
+
+  function clearSavedCred() {
+    localStorage.removeItem(QUICK_LOGIN_STORAGE);
+    setHasSavedCred(false);
+    setRememberOnDevice(false);
   }
 
   return (
@@ -55,7 +131,37 @@ export default function AdminLogin() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {hasSavedCred ? (
+            <div className="mb-5 rounded-2xl border border-orange-200 bg-orange-50/80 p-4 space-y-3">
+              <p className="text-xs text-orange-900/90 font-semibold leading-relaxed">
+                Bu brauzerdə əvvəl saxlanmış giriş var. «Saxlanılmış ilə daxil ol» ilə e-poçt və
+                şifrəni avtomatik göndərə bilərsiniz.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void handleQuickLogin()}
+                  className="flex-1 flex items-center justify-center gap-2 bg-neutral-900 text-white font-black py-3.5 rounded-2xl shadow-md hover:opacity-95 active:scale-[0.99] transition disabled:opacity-60 text-sm"
+                >
+                  <Zap className="w-5 h-5 shrink-0" aria-hidden />
+                  Saxlanılmış ilə daxil ol
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={clearSavedCred}
+                  className="flex items-center justify-center gap-2 border-2 border-neutral-200 text-neutral-700 font-bold py-3.5 px-4 rounded-2xl hover:bg-neutral-50 transition text-sm"
+                  title="Saxlanmış girişi sil"
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden />
+                  Saxlanılmışı sil
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
             <div>
               <label
                 htmlFor="admin-email"
@@ -104,6 +210,19 @@ export default function AdminLogin() {
                 />
               </div>
             </div>
+
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                className="mt-1 w-4 h-4 rounded border-neutral-300 text-primary focus:ring-primary"
+                checked={rememberOnDevice}
+                onChange={(e) => setRememberOnDevice(e.target.checked)}
+              />
+              <span className="text-xs text-neutral-600 leading-snug">
+                Uğurlu girişdən sonra bu brauzerdə e-poçt və şifrəni saxla («Saxlanılmış ilə daxil
+                ol» üçün). Ümumi kompüterdə tövsiyyə olunmur.
+              </span>
+            </label>
 
             {error ? (
               <p className="text-sm text-red-600 font-medium bg-red-50 rounded-xl px-4 py-3 border border-red-100">
