@@ -7,6 +7,7 @@ import { createServer as createViteServer } from "vite";
 import { initMysqlPool, pingMysqlDetail, getMysqlPool } from "./database.js";
 import {
   ensureAdminsTable,
+  replaceAllAdminsFromEnv,
   seedAdminFromEnvIfEmpty,
   trySeedAdminFromEnv,
   verifyAdminLogin,
@@ -97,6 +98,39 @@ function getSessionToken(req: Request): string | undefined {
   return parseCookies(req.headers.cookie)[SESSION_COOKIE];
 }
 
+/** Nginx / Hostinger arxasında HTTPS — Secure kuki (JWT / brauzer uyğunluğu) */
+function adminSessionCookieSecure(req: Request): boolean {
+  if (process.env.ADMIN_COOKIE_SECURE === "false") return false;
+  if (process.env.NODE_ENV !== "production") return false;
+  const xf = req.get("x-forwarded-proto")?.toLowerCase();
+  if (xf === "http") return false;
+  if (xf === "https") return true;
+  if (req.secure) return true;
+  /** Əksər paylaşılmış hostində Node HTTP-dədir, qarşı tərəf HTTPS — əvvəlki kimi default secure */
+  return true;
+}
+
+function clearAdminSessionCookie(req: Request, res: Response): void {
+  res.clearCookie(SESSION_COOKIE, {
+    path: "/",
+    httpOnly: true,
+    secure: adminSessionCookieSecure(req),
+    sameSite: "lax",
+  });
+}
+
+/** Bootstrap token — seed / admin bərpası endpoint-ləri üçün */
+function readBootstrapToken(req: Request): string {
+  return (
+    (typeof req.headers.authorization === "string"
+      ? req.headers.authorization.replace(/^Bearer\s+/i, "").trim()
+      : "") ||
+    (typeof req.headers["x-admin-bootstrap"] === "string"
+      ? String(req.headers["x-admin-bootstrap"]).trim()
+      : "")
+  );
+}
+
 function isCatalogPayload(body: unknown): body is CatalogPayload {
   if (!body || typeof body !== "object") return false;
   const o = body as Record<string, unknown>;
@@ -164,13 +198,7 @@ function attachApi(app: express.Application, cwd: string) {
    */
   app.post("/api/setup/seed-first-admin", async (req, res) => {
     const expected = process.env.ADMIN_BOOTSTRAP_TOKEN?.trim();
-    const given =
-      (typeof req.headers.authorization === "string"
-        ? req.headers.authorization.replace(/^Bearer\s+/i, "").trim()
-        : "") ||
-      (typeof req.headers["x-admin-bootstrap"] === "string"
-        ? String(req.headers["x-admin-bootstrap"]).trim()
-        : "");
+    const given = readBootstrapToken(req);
 
     if (!expected) {
       res.status(503).json({
@@ -203,6 +231,52 @@ function attachApi(app: express.Application, cwd: string) {
       res.status(code).json({ ok: false, message: r.message });
     } catch (e) {
       console.error("[setup/seed-first-admin]", e);
+      res.status(500).json({
+        ok: false,
+        error: String(e instanceof Error ? e.message : e).slice(0, 240),
+      });
+    }
+  });
+
+  /**
+   * Məcburi bərpa: admins cədvəlindəki bütün sətirləri silir və yalnız
+   * .env ADMIN_EMAIL + bcrypt(ADMIN_PASSWORD) ilə tək admin yazır (bootstrap token lazımdır).
+   * İstifadə: giriş çox uzun müddət işləməyəndə və ya phpMyAdmin ilə uyğunsuzluq olanda — bir dəfə POST, sonra .env-dəki ünvanla giriş.
+   */
+  app.post("/api/setup/replace-admin-from-env", async (req, res) => {
+    const expected = process.env.ADMIN_BOOTSTRAP_TOKEN?.trim();
+    const given = readBootstrapToken(req);
+
+    if (!expected) {
+      res.status(503).json({
+        error:
+          "Hostingdə ADMIN_BOOTSTRAP_TOKEN əlavə edin (təsadüfi uzun mətn), sonra yenidən cəhd edin.",
+      });
+      return;
+    }
+    if (given !== expected) {
+      res.status(401).json({
+        error: "Yanlış token — Authorization: Bearer ... və ya x-admin-bootstrap",
+      });
+      return;
+    }
+
+    const pool = getMysqlPool();
+    if (!pool) {
+      res.status(503).json({ error: "MySQL yoxdur" });
+      return;
+    }
+
+    try {
+      await ensureAdminsTable(pool);
+      const r = await replaceAllAdminsFromEnv(pool);
+      if (r.ok) {
+        res.json({ ok: true, message: r.message });
+        return;
+      }
+      res.status(400).json({ ok: false, message: r.message });
+    } catch (e) {
+      console.error("[setup/replace-admin-from-env]", e);
       res.status(500).json({
         ok: false,
         error: String(e instanceof Error ? e.message : e).slice(0, 240),
@@ -282,7 +356,7 @@ function attachApi(app: express.Application, cwd: string) {
           break;
         case "email_not_found":
           msg =
-            "Bu e-poçt administrator siyahısında yoxdur. phpMyAdmin: SELECT email FROM admins — və ya Node MYSQL_DATABASE ilə eyni bazaya baxın (GET /api/health göstərir). Girişdə həmin ünvandan istifadə edin.";
+            "Bu e-poçt administrator siyahısında tapılmadı. Əgər .env uyğunsuzluğu varsa, hostingdə bir dəfə POST /api/setup/replace-admin-from-env (bootstrap token) işlədin, sonra .env-dəki ADMIN_EMAIL ilə giriş edin.";
           code = "EMAIL_NOT_FOUND";
           break;
         case "password_not_configured":
@@ -301,10 +375,9 @@ function attachApi(app: express.Application, cwd: string) {
     }
 
     const token = createSessionToken(secret);
-    const isProd = process.env.NODE_ENV === "production";
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
-      secure: Boolean(isProd),
+      secure: adminSessionCookieSecure(req),
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
@@ -312,8 +385,8 @@ function attachApi(app: express.Application, cwd: string) {
     res.json({ ok: true });
   });
 
-  app.post("/api/admin/logout", (_req, res) => {
-    res.clearCookie(SESSION_COOKIE, { path: "/" });
+  app.post("/api/admin/logout", (req, res) => {
+    clearAdminSessionCookie(req, res);
     res.json({ ok: true });
   });
 
@@ -342,6 +415,9 @@ function attachApi(app: express.Application, cwd: string) {
 
 async function startServer() {
   const app = express();
+  /** Nginx əks istiqamət — X-Forwarded-Proto ilə Secure kuki */
+  app.set("trust proxy", 1);
+
   const cwd = process.cwd();
   const PORT = Number(process.env.PORT) || 3000;
 

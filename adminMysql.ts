@@ -135,3 +135,52 @@ export async function verifyAdminCredentials(
   const r = await verifyAdminLogin(pool, emailNorm, passwordPlain);
   return r.ok === true;
 }
+
+export interface AdminReplaceResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * ADMIN_BOOTSTRAP_TOKEN ilə çağırılan “sərt bərpa”: bütün admins sətirlərini silib
+ * yalnız .env-dəki ADMIN_EMAIL + bcrypt(ADMIN_PASSWORD) ilə tək admin yazır.
+ */
+export async function replaceAllAdminsFromEnv(
+  pool: Pool,
+): Promise<AdminReplaceResult> {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD ?? "";
+
+  if (!email || !String(password).length) {
+    return {
+      ok: false,
+      message:
+        "ADMIN_EMAIL və ADMIN_PASSWORD .env-də təyin olunmalıdır (sinxron üçün)",
+    };
+  }
+
+  const rounds = Number(process.env.BCRYPT_ROUNDS) || 12;
+  const hash = await bcrypt.hash(String(password), rounds);
+  await ensureAdminsTable(pool);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`DELETE FROM admins`);
+    await conn.execute(
+      `INSERT INTO admins (email, password_hash) VALUES (?, ?)`,
+      [email, hash],
+    );
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  return {
+    ok: true,
+    message: `admins bərpa olundu — giriş e-poçtu: ${email}`,
+  };
+}
