@@ -84,7 +84,11 @@ export async function seedAdminFromEnvIfEmpty(pool: Pool): Promise<void> {
   }
 }
 
-export type LoginFailReason = "no_admins" | "email_not_found" | "wrong_password";
+export type LoginFailReason =
+  | "no_admins"
+  | "email_not_found"
+  | "wrong_password"
+  | "password_not_configured";
 
 export type VerifyLoginResult =
   | { ok: true }
@@ -97,13 +101,20 @@ export async function verifyAdminLogin(
   passwordPlain: string,
 ): Promise<VerifyLoginResult> {
   const [rows] = await pool.execute<AdminPwdRow[]>(
-    `SELECT password_hash FROM admins WHERE email = ? LIMIT 1`,
+    `SELECT password_hash FROM admins WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
     [emailNorm],
   );
   const row = rows[0];
-  if (row?.password_hash) {
-    const match = await bcrypt.compare(passwordPlain, row.password_hash);
+  const hash =
+    typeof row?.password_hash === "string" ? row.password_hash.trim() : "";
+
+  if (hash.length > 0) {
+    const match = await bcrypt.compare(passwordPlain, row!.password_hash);
     return match ? { ok: true } : { ok: false, reason: "wrong_password" };
+  }
+
+  if (row !== undefined) {
+    return { ok: false, reason: "password_not_configured" };
   }
 
   const [cntRows] = await pool.execute<RowDataPacket[]>(

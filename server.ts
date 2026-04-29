@@ -147,9 +147,12 @@ async function writeCatalogDisk(cwd: string, catalog: CatalogPayload) {
 function attachApi(app: express.Application, cwd: string) {
   app.get("/api/health", async (_req, res) => {
     const d = await pingMysqlDetail();
+    const dbName =
+      getMysqlPool() ? process.env.MYSQL_DATABASE?.trim() : undefined;
     res.json({
       ok: true,
       mysql: d.mysql,
+      ...(dbName !== undefined ? { mysqlDatabase: dbName } : {}),
       ...(d.mysqlCode ? { mysqlCode: d.mysqlCode } : {}),
       ...(d.mysqlHint ? { mysqlHint: d.mysqlHint } : {}),
     });
@@ -279,8 +282,13 @@ function attachApi(app: express.Application, cwd: string) {
           break;
         case "email_not_found":
           msg =
-            "Bu e-poçt administrator siyahısında yoxdur. phpMyAdmin: SELECT email FROM admins — girişdə həmin ünvandan istifadə edin və ya admins.email dəyərini yeniləyin.";
+            "Bu e-poçt administrator siyahısında yoxdur. phpMyAdmin: SELECT email FROM admins — və ya Node MYSQL_DATABASE ilə eyni bazaya baxın (GET /api/health göstərir). Girişdə həmin ünvandan istifadə edin.";
           code = "EMAIL_NOT_FOUND";
+          break;
+        case "password_not_configured":
+          msg =
+            "admins sətirində bcrypt şifrə (password_hash) yoxdur və ya boşdur. phpMyAdmin-də sırf əl ilə email əlavə etmək kifayət deyil — .env ADMIN_EMAIL/ADMIN_PASSWORD ilə seed və ya uyğun hash əlavə edin.";
+          code = "PASSWORD_NOT_CONFIGURED";
           break;
         case "wrong_password":
         default:
