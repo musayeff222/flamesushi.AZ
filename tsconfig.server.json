@@ -10,5 +10,5 @@
     "outDir": "dist-server",
     "noEmit": false
   },
-  "include": ["server.ts", "database.ts"]
+  "include": ["server.ts", "database.ts", "adminMysql.ts"]
 }

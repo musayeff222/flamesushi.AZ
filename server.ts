@@ -4,8 +4,12 @@ import express, { type Request, type Response } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
-import { initMysqlPool, pingMysql } from "./database.js";
-
+import { initMysqlPool, pingMysql, getMysqlPool } from "./database.js";
+import {
+  ensureAdminsTable,
+  seedAdminFromEnvIfEmpty,
+  verifyAdminCredentials,
+} from "./adminMysql.js";
 const SESSION_COOKIE = "flamesushi_admin_session";
 
 interface CatalogPayload {
@@ -39,14 +43,19 @@ function parseCookies(header?: string): Record<string, string> {
   return out;
 }
 
-function sessionSecret(adminPasswordTrimmed: string | undefined): string | null {
+/** Sessiya kukilərinin imzası — ADMIN_SESSION_SECRET və ya MYSQL_DATABASE + ADMIN_EMAIL derivasiya. */
+function signingSecret(): string | null {
   const explicit = process.env.ADMIN_SESSION_SECRET?.trim();
   if (explicit) return explicit;
-  if (!adminPasswordTrimmed) return null;
-  return crypto
-    .createHash("sha256")
-    .update(`flamesushi_admin_sess:${adminPasswordTrimmed}`)
-    .digest("hex");
+  const db = process.env.MYSQL_DATABASE?.trim();
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  if (db && email) {
+    return crypto
+      .createHash("sha256")
+      .update(`fs_sess:v1:${db}:${email}`)
+      .digest("hex");
+  }
+  return null;
 }
 
 function createSessionToken(secret: string): string {
@@ -135,9 +144,6 @@ async function writeCatalogDisk(cwd: string, catalog: CatalogPayload) {
 }
 
 function attachApi(app: express.Application, cwd: string) {
-  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
-  const adminSecretResolved = (): string | null => sessionSecret(adminPassword);
-
   app.get("/api/health", async (_req, res) => {
     const mysql = await pingMysql();
     res.json({ ok: true, mysql });
@@ -153,14 +159,15 @@ function attachApi(app: express.Application, cwd: string) {
   });
 
   app.get("/api/admin/me", (req, res) => {
-    const secret = adminSecretResolved();
-    if (!adminPassword) {
+    const mysqlPool = getMysqlPool();
+    if (!mysqlPool) {
       res.json({
         authenticated: false,
-        reason: "admin_not_configured" as const,
+        reason: "mysql_not_configured" as const,
       });
       return;
     }
+    const secret = signingSecret();
     if (!secret) {
       res.json({
         authenticated: false,
@@ -177,19 +184,37 @@ function attachApi(app: express.Application, cwd: string) {
   });
 
   app.post("/api/admin/login", async (req, res) => {
-    const secret = adminSecretResolved();
-    if (!secret || !adminPassword) {
-      res.status(503).json({ error: "Admin şifrəsi təyin olunmayıb" });
+    const mysqlPool = getMysqlPool();
+    if (!mysqlPool) {
+      res.status(503).json({
+        error: "MySQL təyin olunmayıb (MYSQL_USER / MYSQL_DATABASE)",
+      });
       return;
     }
-    const pwd =
-      typeof req.body?.password === "string"
-        ? (req.body.password as string)
-        : "";
-    if (pwd !== adminPassword) {
-      res.status(401).json({ error: "Yanlış şifrə" });
+    const secret = signingSecret();
+    if (!secret) {
+      res.status(503).json({
+        error:
+          "ADMIN_SESSION_SECRET yazın və ya ADMIN_EMAIL ilə MYSQL_DATABASE birlikdə olsun",
+      });
       return;
     }
+
+    const emailRaw = typeof req.body?.email === "string" ? req.body.email : "";
+    const pwdRaw = typeof req.body?.password === "string" ? req.body.password : "";
+    const email = emailRaw.trim().toLowerCase();
+
+    if (!email || !pwdRaw) {
+      res.status(400).json({ error: "E-poçt və şifrə tələb olunur" });
+      return;
+    }
+
+    const ok = await verifyAdminCredentials(mysqlPool, email, pwdRaw);
+    if (!ok) {
+      res.status(401).json({ error: "E-poçt və ya şifrə yanlışdır" });
+      return;
+    }
+
     const token = createSessionToken(secret);
     const isProd = process.env.NODE_ENV === "production";
     res.cookie(SESSION_COOKIE, token, {
@@ -208,10 +233,11 @@ function attachApi(app: express.Application, cwd: string) {
   });
 
   app.put("/api/admin/catalog", async (req, res) => {
-    const secret = adminSecretResolved();
-    if (!secret || !adminPassword) {
+    const mysqlPool = getMysqlPool();
+    const secret = signingSecret();
+    if (!mysqlPool || !secret) {
       res.status(503).json({
-        error: "Admin şifrəsi və ya ADMIN_SESSION_SECRET təyin olunmayıb",
+        error: "MySQL və sessiya dəyərləri lazımdır",
       });
       return;
     }
@@ -235,6 +261,11 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   initMysqlPool();
+  const pool = getMysqlPool();
+  if (pool) {
+    await ensureAdminsTable(pool);
+    await seedAdminFromEnvIfEmpty(pool);
+  }
 
   app.use(express.json({ limit: "2mb" }));
   attachApi(app, cwd);
@@ -263,4 +294,7 @@ async function startServer() {
   });
 }
 
-startServer();
+void startServer().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

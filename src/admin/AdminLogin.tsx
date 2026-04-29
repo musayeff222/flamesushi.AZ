@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Lock, Flame, ArrowRight } from 'lucide-react';
+import { Lock, Flame, ArrowRight, Mail } from 'lucide-react';
 
 export default function AdminLogin() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,7 +18,7 @@ export default function AdminLogin() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
       const data = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) {
@@ -44,11 +45,35 @@ export default function AdminLogin() {
               Flame Sushi — Admin
             </h1>
             <p className="text-sm text-neutral-500 text-center">
-              Yalnız səlahiyyətli şəxslər üçün
+              E-poçt və şifrə ilə daxil olun
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label
+                htmlFor="admin-email"
+                className="block text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2"
+              >
+                E-poçt
+              </label>
+              <div className="relative">
+                <Mail
+                  className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-300"
+                  aria-hidden
+                />
+                <input
+                  id="admin-email"
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3.5 rounded-2xl border-2 border-neutral-100 bg-neutral-50/80 focus:border-primary focus:ring-0 outline-none transition text-neutral-900 font-medium placeholder:text-neutral-300"
+                  placeholder="admin@flamesushi.az"
+                  required
+                />
+              </div>
+            </div>
             <div>
               <label
                 htmlFor="admin-password"

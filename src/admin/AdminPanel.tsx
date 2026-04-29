@@ -31,12 +31,16 @@ function cloneCatalog(c: CatalogState): CatalogState {
 
 async function fetchAuth(): Promise<{
   authenticated: boolean;
-  reason?: 'admin_not_configured' | 'session_not_configurable';
+  reason?:
+    | 'mysql_not_configured'
+    | 'session_not_configurable';
 }> {
   const r = await fetch('/api/admin/me', { credentials: 'include' });
   const j = (await r.json()) as {
     authenticated?: boolean;
-    reason?: 'admin_not_configured' | 'session_not_configurable';
+    reason?:
+      | 'mysql_not_configured'
+      | 'session_not_configurable';
   };
   return {
     authenticated: Boolean(j.authenticated),
@@ -64,13 +68,17 @@ export default function AdminPanel() {
     void (async () => {
       const auth = await fetchAuth();
       setAuthReady(true);
-      if (auth.reason === 'admin_not_configured') {
-        alert('Serverdə ADMIN_PASSWORD təyin olunmalıdır (.env).');
+      if (auth.reason === 'mysql_not_configured') {
+        alert(
+          'MySQL üçün .envdə MYSQL_USER, MYSQL_DATABASE (və MYSQL_PASSWORD) təyin edin.',
+        );
         navigate('/');
         return;
       }
       if (auth.reason === 'session_not_configurable') {
-        alert('ADMIN_PASSWORD və ya ADMIN_SESSION_SECRET uyğun deyil.');
+        alert(
+          'ADMIN_SESSION_SECRET yazın və ya ADMIN_EMAIL + MYSQL_DATABASE birlikdə təyin edin.',
+        );
         navigate('/');
         return;
       }
