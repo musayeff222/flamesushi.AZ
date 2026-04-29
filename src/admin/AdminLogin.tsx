@@ -20,9 +20,15 @@ export default function AdminLogin() {
         credentials: 'include',
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      const data = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+      };
       if (!r.ok) {
-        setError(data.error || 'Giriş uğursuz oldu');
+        const prefix = data.code ? `[${data.code}] ` : "";
+        setError(
+          `${prefix}${data.error || "Giriş uğursuz oldu (401 — e-poçt və ya şifrə yanlışdır)"}`,
+        );
         return;
       }
       navigate('/admin', { replace: true });

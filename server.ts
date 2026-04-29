@@ -278,7 +278,8 @@ function attachApi(app: express.Application, cwd: string) {
           code = "NO_ADMINS";
           break;
         case "email_not_found":
-          msg = "Bu e-poçt ilə qeydiyyat tapılmadı.";
+          msg =
+            "Bu e-poçt administrator siyahısında yoxdur. phpMyAdmin: SELECT email FROM admins — girişdə həmin ünvandan istifadə edin və ya admins.email dəyərini yeniləyin.";
           code = "EMAIL_NOT_FOUND";
           break;
         case "wrong_password":
