@@ -1263,16 +1263,7 @@ function ProductModal({
                 disabled
               />
             </>
-          : <div
-              className={
-                dark ?
-                  'rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-xs text-neutral-400'
-                : 'rounded-2xl bg-neutral-50 px-4 py-3 text-xs text-neutral-600'
-              }
-            >
-              ID sistem tərəfindən verilir — əlavə etmək lazım deyil.
-            </div>
-          }
+          : null}
 
           <div>
             <label className={lbl}>Ad</label>

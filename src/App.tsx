@@ -234,18 +234,53 @@ export default function App() {
     return fallback.map((p) => ({ key: p.id, imageUrl: p.image, product: p }));
   }, [catalog.siteBanners, PRODUCTS]);
 
-  const productsInCategorySorted = useMemo(() => {
-    return PRODUCTS.filter((p) => p.category === selectedCategory).sort(
-      (a, b) => {
+  const sortedProductsByCategory = useMemo(() => {
+    const map = new Map<string, Product[]>();
+    for (const cat of CATEGORIES) {
+      const arr = PRODUCTS.filter((p) => p.category === cat.id).sort((a, b) => {
         const oa = a.sortOrder ?? 9999;
         const ob = b.sortOrder ?? 9999;
         if (oa !== ob) return oa - ob;
         return a.name.localeCompare(b.name, 'az');
-      },
-    );
-  }, [PRODUCTS, selectedCategory]);
+      });
+      map.set(cat.id, arr);
+    }
+    return map;
+  }, [PRODUCTS, CATEGORIES]);
 
   const carouselMs = Math.max(2500, (catalog.siteBanners?.carouselSeconds ?? 4) * 1000);
+
+  /** Aşağı sükananda ən çox görünən qrup seçilir; chip sətirini yalnız klikdə mərkəzə sürüşürük. */
+  useEffect(() => {
+    const sections = CATEGORIES.map((c) =>
+      document.getElementById(`menu-${c.id}`),
+    ).filter((n): n is HTMLElement => Boolean(n));
+    if (sections.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries
+          .filter((e) => e.isIntersecting)
+          .sort(
+            (a, b) =>
+              b.intersectionRatio - a.intersectionRatio ||
+              a.boundingClientRect.top - b.boundingClientRect.top,
+          )[0];
+        if (!hit?.target?.id?.startsWith('menu-')) return;
+        const id = hit.target.id.slice('menu-'.length);
+        if (CATEGORIES.some((c) => c.id === id))
+          setSelectedCategory(id);
+      },
+      {
+        root: null,
+        rootMargin: '-12% 0px -52% 0px',
+        threshold: [0, 0.05, 0.1, 0.15, 0.25, 0.35, 0.5],
+      },
+    );
+
+    for (const el of sections) observer.observe(el);
+    return () => observer.disconnect();
+  }, [CATEGORIES, PRODUCTS]);
 
   useEffect(() => {
     if (activePage === 'home') {
@@ -348,15 +383,38 @@ export default function App() {
               </motion.div>
             </div>
 
-            {/* --- Categories --- */}
-            <div className="space-y-4">
-              <h3 className="text-xl font-bold">Menyu Kateqoriyaları</h3>
+            {/* Kateqoriyalar — basanda həmin qrupa sükan; aşağı sükananda aktiv qrup özü yenilənir */}
+            <div className="sticky top-[52px] z-20 -mx-4 bg-white/92 px-4 pb-3 pt-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 lg:top-14">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-neutral-400">
+                Kateqoriyaya keçid
+              </p>
               <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                {CATEGORIES.map(cat => (
-                  <button 
+                {CATEGORIES.map((cat) => (
+                  <button
                     key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
-                    className={`whitespace-nowrap px-6 py-2.5 rounded-full text-sm font-bold transition-all border-2 ${selectedCategory === cat.id ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20' : 'bg-white border-neutral-100 text-neutral-400 hover:border-primary/30'}`}
+                    id={`chip-${cat.id}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory(cat.id);
+                      requestAnimationFrame(() => {
+                        document
+                          .getElementById(`chip-${cat.id}`)
+                          ?.scrollIntoView({
+                            behavior: 'smooth',
+                            inline: 'center',
+                            block: 'nearest',
+                          });
+                      });
+                      document.getElementById(`menu-${cat.id}`)?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                      });
+                    }}
+                    className={`touch-manipulation whitespace-nowrap rounded-full border-2 px-5 py-2.5 text-sm font-bold transition-all ${
+                      selectedCategory === cat.id
+                        ? 'border-primary bg-primary text-white shadow-lg shadow-primary/20'
+                        : 'border-neutral-100 bg-white text-neutral-400 hover:border-primary/30'
+                    }`}
                   >
                     {cat.name}
                   </button>
@@ -364,40 +422,79 @@ export default function App() {
               </div>
             </div>
 
-            {/* --- Menu Grid --- */}
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
-                {productsInCategorySorted.map((product) => (
-                  <div key={product.id} className="bg-white rounded-3xl border border-neutral-100 shadow-sm hover:shadow-md p-4 relative space-y-4 flex flex-col group transition-all duration-300">
-                    {product.discountPrice && (
-                      <div className="absolute top-4 right-4 z-10 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded">
-                        -{Math.round((1 - product.discountPrice / product.price) * 100)}%
-                      </div>
-                    )}
-                    <div className="w-full aspect-square bg-orange-50 rounded-2xl flex items-center justify-center overflow-hidden">
-                      <img 
-                        src={product.image} 
-                        alt={product.name} 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                        referrerPolicy="no-referrer" 
-                      />
+            {/* Bütün qruplar alt-alta — bir qrupun sonunu gördükcə növbəti qrupun məhsulları görünür */}
+            <div className="space-y-14 pb-10">
+              {CATEGORIES.map((cat) => {
+                const items = sortedProductsByCategory.get(cat.id) ?? [];
+                if (items.length === 0) return null;
+                return (
+                  <section
+                    key={cat.id}
+                    id={`menu-${cat.id}`}
+                    className="scroll-mt-[7.5rem]"
+                  >
+                    <div className="mb-5 flex flex-wrap items-end gap-3 border-b border-neutral-100 pb-3">
+                      <h3 className="text-2xl font-black tracking-tight text-neutral-900">
+                        {cat.name}
+                      </h3>
+                      <span className="text-xs font-bold text-neutral-400">
+                        {items.length} məhsul
+                      </span>
                     </div>
-                    <div className="flex-1">
-                      <h4 className="text-base font-bold text-neutral-800 leading-tight">{product.name}</h4>
-                      <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2 md:line-clamp-none">{product.description}</p>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {items.map((product) => (
+                        <div
+                          key={product.id}
+                          className="group relative flex flex-col space-y-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-md"
+                        >
+                          {product.discountPrice ?
+                            <div className="absolute right-4 top-4 z-10 rounded bg-red-500 px-2 py-1 text-[10px] font-bold text-white">
+                              -
+                              {Math.round(
+                                (1 - product.discountPrice / product.price) * 100,
+                              )}
+                              %
+                            </div>
+                          : null}
+                          <div className="aspect-square w-full overflow-hidden rounded-2xl bg-orange-50">
+                            {product.image?.trim() ?
+                              <img
+                                src={product.image}
+                                alt={product.name}
+                                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                referrerPolicy="no-referrer"
+                              />
+                            : <div className="flex h-full w-full items-center justify-center bg-neutral-100 p-4 text-center text-[11px] font-bold leading-snug text-neutral-400">
+                                Şəkil yüklənməyib — admin paneldə seçin
+                              </div>
+                            }
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="text-base font-bold leading-tight text-neutral-800">
+                              {product.name}
+                            </h4>
+                            <p className="mt-1 line-clamp-3 text-[11px] text-neutral-400 md:line-clamp-none">
+                              {product.description}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg font-bold text-primary">
+                              {product.discountPrice || product.price} ₼
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => addToCart(product)}
+                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary font-bold text-white shadow-lg shadow-primary/10 transition-all hover:bg-primary-dark active:scale-90"
+                            >
+                              <Plus size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg font-bold text-primary">{product.discountPrice || product.price} ₼</span>
-                      <button 
-                         onClick={() => addToCart(product)}
-                         className="bg-primary text-white w-9 h-9 rounded-xl flex items-center justify-center font-bold shadow-lg shadow-primary/10 hover:bg-primary-dark active:scale-90 transition-all"
-                      >
-                        <Plus size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  </section>
+                );
+              })}
             </div>
           </motion.div>
         )}
