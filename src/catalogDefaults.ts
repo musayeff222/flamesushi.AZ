@@ -430,6 +430,20 @@ export function normalizeCatalogState(raw: unknown): CatalogState {
       if (dtype === 'fixed' && discountFixedFinal === undefined)
         discountFixedFinal = 1;
 
+      const rawMax =
+        typeof pc.maxUses === 'number' &&
+        Number.isFinite(pc.maxUses) &&
+        pc.maxUses > 0
+          ? Math.min(10_000_000, Math.floor(pc.maxUses))
+          : undefined;
+
+      const rawTimes =
+        typeof pc.timesUsed === 'number' &&
+        Number.isFinite(pc.timesUsed) &&
+        pc.timesUsed >= 0
+          ? Math.min(rawMax ?? 10_000_000, Math.floor(pc.timesUsed))
+          : undefined;
+
       out.push({
         id: pc.id,
         code: String(pc.code).trim(),
@@ -439,6 +453,8 @@ export function normalizeCatalogState(raw: unknown): CatalogState {
         discountFixedAmount: discountFixedFinal,
         validFrom: isIsoDateLike(pc.validFrom) ? pc.validFrom : undefined,
         validTo: isIsoDateLike(pc.validTo) ? pc.validTo : undefined,
+        ...(rawMax !== undefined ? { maxUses: rawMax } : {}),
+        ...(rawTimes !== undefined ? { timesUsed: rawTimes } : {}),
         note: typeof pc.note === 'string' ? pc.note : undefined,
         createdAt: pc.createdAt,
       });

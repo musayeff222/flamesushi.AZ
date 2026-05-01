@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Calendar } from 'lucide-react';
 import type {
   CatalogState,
   PromoCodeEntry,
@@ -74,6 +74,7 @@ export default function AdminPromoNew() {
       discountPercent: 10,
       activeOnWebsite: true,
       createdAt: isoDateToday(),
+      timesUsed: 0,
     };
 
     newPromoIdRef.current = id;
@@ -268,6 +269,69 @@ export default function AdminPromoNew() {
                 'Saytda aktiv (səbətdə qəbul olunur)'
               : 'Saytda sönülü'}
             </button>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className={`${label} flex items-center gap-2`}>
+                <Calendar className="h-3.5 w-3.5" /> Aktivindən (tarix)
+              </label>
+              <input
+                type="date"
+                className={input}
+                value={promo.validFrom ?? ''}
+                onChange={(e) =>
+                  updatePromo({
+                    validFrom: e.target.value || undefined,
+                  })
+                }
+              />
+              <p className="mt-2 text-xs text-neutral-500">Boş = dərhal başlayır</p>
+            </div>
+            <div>
+              <label className={`${label} flex items-center gap-2`}>
+                <Calendar className="h-3.5 w-3.5" /> Son tarix
+              </label>
+              <input
+                type="date"
+                className={input}
+                value={promo.validTo ?? ''}
+                onChange={(e) =>
+                  updatePromo({
+                    validTo: e.target.value || undefined,
+                  })
+                }
+              />
+              <p className="mt-2 text-xs text-neutral-500">Boş = tarix limiti yoxdur</p>
+            </div>
+          </div>
+
+          <div>
+            <label className={label}>Ümumi istifadə limiti</label>
+            <input
+              type="number"
+              min={1}
+              placeholder="Boş yazın — limitsiz"
+              inputMode="numeric"
+              className={`${input} font-black`}
+              value={promo.maxUses ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                if (!v) {
+                  updatePromo({ maxUses: undefined });
+                  return;
+                }
+                const n = Math.floor(Number(v));
+                if (!Number.isFinite(n) || n < 1) return;
+                updatePromo({
+                  maxUses: Math.min(10_000_000, n),
+                });
+              }}
+            />
+            <p className="mt-2 text-xs text-neutral-500">
+              Məsələn «3» — kod yalnız üç uğurlu yoxlamadan sonra deaktiv sayılacaq (hər səbət
+              tətqiqında bir dəfə).
+            </p>
           </div>
         </form>
 

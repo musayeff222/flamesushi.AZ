@@ -55,6 +55,10 @@ interface CatalogPayload {
     activeOnWebsite: boolean;
     validFrom?: string;
     validTo?: string;
+    /** Ümumi neçə istifadəyə icazə; boş/0 = limitsiz */
+    maxUses?: number;
+    /** Tətbiq sayı — /api/promo/register-use ilə artır */
+    timesUsed?: number;
     note?: string;
     createdAt: string;
   }>;
@@ -505,6 +509,91 @@ function attachApi(app: express.Application, cwd: string) {
       res.json(catalog);
     } catch {
       res.status(500).json({ error: "Catalog load failed" });
+    }
+  });
+
+  /**
+   * Səbətdə promo qəbulundan sonra çağrılır: istifadə sayını katoloqda +1 edir.
+   * maxUses ilə limit yoxlaması burada çoxlu tab üçün bir mənbə kimi saxlanılır.
+   */
+  app.post("/api/promo/register-use", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const raw = typeof req.body?.code === "string" ? req.body.code : "";
+    const codeNorm = raw.trim().toUpperCase().replace(/\s+/g, "");
+    if (!codeNorm) {
+      res.status(400).json({ ok: false, error: "code_required" });
+      return;
+    }
+    try {
+      let catalog = await readCatalogDisk(cwd);
+      const list = [...(catalog.promoCodes ?? [])];
+      const idx = list.findIndex((p) => {
+        const c = String(p.code).trim().toUpperCase().replace(/\s+/g, "");
+        return c === codeNorm;
+      });
+      if (idx === -1) {
+        res.status(404).json({ ok: false, error: "not_found" });
+        return;
+      }
+      const promo = list[idx]!;
+
+      if (!promo.activeOnWebsite) {
+        res.status(403).json({ ok: false, error: "inactive" });
+        return;
+      }
+
+      const nowMs = Date.now();
+      if (promo.validFrom) {
+        const t = new Date(`${promo.validFrom}T00:00:00`).getTime();
+        if (Number.isFinite(t) && nowMs < t) {
+          res.status(403).json({ ok: false, error: "not_yet_valid" });
+          return;
+        }
+      }
+      if (promo.validTo) {
+        const t = new Date(`${promo.validTo}T23:59:59`).getTime();
+        if (Number.isFinite(t) && nowMs > t) {
+          res.status(403).json({ ok: false, error: "expired" });
+          return;
+        }
+      }
+
+      const maxUsesRaw = promo.maxUses;
+      const maxUses =
+        typeof maxUsesRaw === "number" &&
+        Number.isFinite(maxUsesRaw) &&
+        maxUsesRaw > 0
+          ? Math.min(10_000_000, Math.floor(maxUsesRaw))
+          : 0;
+      const usedRaw = promo.timesUsed;
+      const used = Math.max(
+        0,
+        typeof usedRaw === "number" &&
+          Number.isFinite(usedRaw) &&
+          usedRaw >= 0
+          ? Math.floor(usedRaw)
+          : 0,
+      );
+
+      if (maxUses > 0 && used >= maxUses) {
+        res.status(409).json({ ok: false, error: "limit_reached" });
+        return;
+      }
+
+      const nextUsed = used + 1;
+      list[idx] = { ...promo, timesUsed: nextUsed };
+      catalog = { ...catalog, promoCodes: list };
+      await writeCatalogDisk(cwd, catalog);
+
+      res.json({
+        ok: true,
+        timesUsed: nextUsed,
+        maxUses: maxUses > 0 ? maxUses : null,
+        remaining: maxUses > 0 ? Math.max(0, maxUses - nextUsed) : null,
+      });
+    } catch (e) {
+      console.error("[promo/register-use]", e);
+      res.status(500).json({ ok: false, error: "server_error" });
     }
   });
 

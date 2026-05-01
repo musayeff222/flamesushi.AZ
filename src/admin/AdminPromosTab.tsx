@@ -23,6 +23,19 @@ function statusFor(promo: PromoCodeEntry): {
 } {
   if (!promo.activeOnWebsite)
     return { key: 'off', short: 'Saytda söndürülüb' };
+
+  const maxLim = promo.maxUses;
+  const used =
+    typeof promo.timesUsed === 'number' && Number.isFinite(promo.timesUsed)
+      ? Math.max(0, Math.floor(promo.timesUsed))
+      : 0;
+  if (
+    typeof maxLim === 'number' &&
+    maxLim > 0 &&
+    used >= Math.floor(maxLim)
+  )
+    return { key: 'exhausted', short: `${used}/${Math.floor(maxLim)} — limit dolub` };
+
   const now = Date.now();
   if (promo.validFrom) {
     const t = new Date(`${promo.validFrom}T00:00:00`).getTime();
@@ -33,7 +46,9 @@ function statusFor(promo: PromoCodeEntry): {
     const t = new Date(`${promo.validTo}T23:59:59`).getTime();
     if (Number.isFinite(t) && now > t) return { key: 'past', short: 'Müddəti bitib' };
   }
-  return { key: 'live', short: 'Aktiv' };
+  const limTxt =
+    typeof maxLim === 'number' && maxLim > 0 ? ` (${used}/${Math.floor(maxLim)} ist.)` : '';
+  return { key: 'live', short: `Aktiv${limTxt}` };
 }
 
 const PRESET_PCT = [5, 10, 15, 20, 25, 30] as const;
@@ -47,7 +62,7 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
     return [...promos].sort((a, b) => {
       const sa = statusFor(a);
       const sb = statusFor(b);
-      const prio = { live: 0, upcoming: 1, past: 2, off: 3 };
+      const prio = { live: 0, upcoming: 1, exhausted: 2, past: 3, off: 4 };
       const d = prio[sa.key as keyof typeof prio] - prio[sb.key as keyof typeof prio];
       if (d !== 0) return d;
       return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
@@ -111,8 +126,9 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
           Promo kod necə işləyir?
         </p>
         <p className="mt-1">
-          Səbətdə endirimi yoxlamaq üçün istifadə olunur; başlanğıc / son tarixi boş qalsa — müddət
-          məhdudiyyəti olmur. Kodları böyük hərflə saxlamağı tövsiyə edirik.
+          Səbətdə «Yoxla» düyməsi uğurla işləndikdə istifadə sayını serverdə +1 edir. Başlanğıc / son
+          tarixi və ümumi istifadə limiti (məs. 5 dəfə) burada təyin olunur — limit dolanda kod avtomatik
+          qəbul edilmir.
         </p>
       </div>
 
@@ -146,6 +162,8 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
                 `${pillBase} ${dark ? 'bg-emerald-950/80 text-emerald-300' : 'bg-emerald-50 text-emerald-800'}`
               : st.key === 'upcoming' ?
                 `${pillBase} ${dark ? 'bg-amber-950/80 text-amber-200' : 'bg-amber-50 text-amber-900'}`
+              : st.key === 'exhausted' ?
+                `${pillBase} ${dark ? 'bg-violet-950/80 text-violet-200' : 'bg-violet-50 text-violet-900'}`
               : st.key === 'past' ?
                 `${pillBase} ${dark ? 'bg-neutral-800 text-neutral-400' : 'bg-neutral-100 text-neutral-600'}`
               : `${pillBase} ${dark ? 'bg-red-950/70 text-red-300' : 'bg-red-50 text-red-800'}`;
@@ -382,6 +400,56 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
                           })
                         }
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className={`mb-1.5 block ${label}`}>
+                        Ümumi istifadə limiti (boş = limitsiz)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10_000_000}
+                        inputMode="numeric"
+                        placeholder="Məs: 5"
+                        className={input}
+                        value={p.maxUses ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v.trim()) {
+                            updatePromo(p.id, { maxUses: undefined });
+                            return;
+                          }
+                          const n = Math.floor(Number(v));
+                          if (!Number.isFinite(n) || n < 1) return;
+                          updatePromo(p.id, {
+                            maxUses: Math.min(10_000_000, n),
+                          });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className={`mb-1.5 block ${label}`}>İndi istifadə olunub (əl ilə düzəlt)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        className={input}
+                        value={p.timesUsed ?? 0}
+                        onChange={(e) =>
+                          updatePromo(p.id, {
+                            timesUsed: Math.max(
+                              0,
+                              Math.floor(Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                      />
+                      <p className={`mt-1 text-[11px] ${dark ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                        Müştəri səbətdə qəbul etdikcə əlavə olunur — təkrar sıfırlamaq üçün 0 yazın.
+                      </p>
                     </div>
                   </div>
 

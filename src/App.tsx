@@ -44,6 +44,18 @@ function promoEligible(p: PromoCodeEntry): boolean {
     const t = new Date(`${p.validTo}T23:59:59`).getTime();
     if (Number.isFinite(t) && now > t) return false;
   }
+  const maxLim = p.maxUses;
+  if (
+    typeof maxLim === 'number' &&
+    Number.isFinite(maxLim) &&
+    maxLim > 0
+  ) {
+    const used =
+      typeof p.timesUsed === 'number' && Number.isFinite(p.timesUsed)
+        ? Math.max(0, Math.floor(p.timesUsed))
+        : 0;
+    if (used >= Math.floor(maxLim)) return false;
+  }
   return true;
 }
 
@@ -170,7 +182,7 @@ const WhatsAppPopup = ({
 
 export default function App() {
   const [searchParams] = useSearchParams();
-  const { catalog } = useCatalog();
+  const { catalog, reload } = useCatalog();
 
   const previewTheme = themeFromPreviewParam(searchParams.get('previewTheme'));
   const savedTheme: ThemeId = catalog.siteSettings?.themeId ?? 'flame';
@@ -271,13 +283,43 @@ export default function App() {
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
 
-  const applyPromo = () => {
+  const applyPromo = async () => {
     const q = promoCode.trim().toUpperCase();
     const list = catalog.promoCodes ?? [];
     const hit = list.find(
       (p) => p.code.trim().toUpperCase() === q && promoEligible(p),
     );
-    if (hit) {
+    if (!hit) {
+      alert('Yanlış və ya aktiv olmayan promo kod');
+      return;
+    }
+    try {
+      const r = await fetch('/api/promo/register-use', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ code: q }),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!r.ok || j.ok !== true) {
+        if (r.status === 409 || j.error === 'limit_reached') {
+          alert('Bu promo kodunun istifadə limiti dolub.');
+        } else if (j.error === 'expired' || j.error === 'not_yet_valid') {
+          alert('Promo kodunun aktivlik müddətinə düşmur.');
+        } else if (j.error === 'inactive') {
+          alert('Promo kod söndürülüb.');
+        } else {
+          alert(
+            j.error === 'not_found' ?
+              'Bu promo kod tapılmadı.'
+            : 'Promo kodu təsdiqlənmədi. Bir az sonra yenidən yoxlayın.',
+          );
+        }
+        return;
+      }
       const kind =
         hit.discountType === 'fixed' ? 'fixed' : 'percent';
       const value =
@@ -292,8 +334,9 @@ export default function App() {
         kind,
         value,
       });
-    } else {
-      alert('Yanlış və ya aktiv olmayan promo kod');
+      void reload();
+    } catch {
+      alert('Şəbəkə xətası — promo təsdiqlənmədi.');
     }
   };
 

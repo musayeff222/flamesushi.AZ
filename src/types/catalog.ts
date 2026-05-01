@@ -69,6 +69,10 @@ export interface PromoCodeEntry extends PromoDiscount {
   activeOnWebsite: boolean;
   validFrom?: string;
   validTo?: string;
+  /** Pozitiv ədəd: ümumi neçə dəfə tətbiq oluna bilər (serverdə saxlanılır); boş = limitsiz */
+  maxUses?: number;
+  /** Uğurla tətbiq olunmuş sayı (sayt müştərisi «Yoxla» basanda artırılır) */
+  timesUsed?: number;
   note?: string;
   createdAt: string;
 }

@@ -1,6 +1,8 @@
 import {
   Fragment,
+  type Dispatch,
   type FormEvent,
+  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -46,7 +48,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { CatalogState, Category, Product } from '../types/catalog.ts';
+import type {
+  CatalogState,
+  Category,
+  HeroBannerSlide,
+  Product,
+} from '../types/catalog.ts';
 import { useCatalog } from '../CatalogContext.tsx';
 import { defaultCatalogState } from '../catalogDefaults.ts';
 import { ADMIN_ROUTES } from './paths.ts';
@@ -119,18 +126,81 @@ function reorderProductSortInGroup(
   });
 }
 
+/** Məhsul şəkili və yazısı ilə əsas səhifə karuselində yeni slayt yaradır. */
+function appendProductAsBannerSlide(
+  setDraft: Dispatch<SetStateAction<CatalogState>>,
+  p: Product,
+) {
+  if (!p.image?.trim()) {
+    alert('Banner üçün məhsulda şəkil olmalıdır — əvvəlcə şəkil yükləyin.');
+    return;
+  }
+
+  const raw = Number(p.discountPrice ?? p.price);
+  const showPrice =
+    Number.isFinite(raw)
+      ? (Number.isInteger(raw) ? raw : Math.round(raw * 100) / 100)
+      : 0;
+  const overlayPriceLabel = `${showPrice} ₼`;
+
+  setDraft((d) => {
+    const slides = d.siteBanners.slides ?? [];
+    const carouselSeconds =
+      d.siteBanners.carouselSeconds ?? slides[0]?.durationSeconds ?? 4;
+    const durationSeconds = Math.min(
+      120,
+      Math.max(2, Math.round(Number(carouselSeconds) || 4)),
+    );
+    const id = globalThis.crypto?.randomUUID?.() ?? `hb-${Date.now()}`;
+    const slide: HeroBannerSlide = {
+      id,
+      name: p.name.trim() || 'Baner məhsulu',
+      imageUrl: p.image.trim(),
+      overlayProductName: p.name.trim(),
+      overlayPriceLabel,
+      durationSeconds,
+    };
+
+    const nextSlides = [...slides, slide];
+    const prevSlidesLen = slides.length;
+    const feat = d.siteBanners.featuredProductIds;
+    const featuredProductIds =
+      feat?.length === prevSlidesLen ?
+        [...feat, p.id]
+      : nextSlides.map(() => '');
+
+    return {
+      ...d,
+      siteBanners: {
+        ...d.siteBanners,
+        slides: nextSlides,
+        carouselSeconds:
+          d.siteBanners.carouselSeconds ?? carouselSeconds ?? 4,
+        heroImageUrls: nextSlides.map((s) => s.imageUrl),
+        featuredProductIds,
+      },
+    };
+  });
+
+  alert(
+    'Karuselə slayt əlavə olundu. «Banerlər» bölməsindən sıra və müddəti düzələ bilərsiniz.',
+  );
+}
+
 function SortableProductMobileAdminCard({
   product: p,
   categoryLabel,
   dark,
   onEdit,
   onDelete,
+  onAddToBanner,
 }: {
   product: Product;
   categoryLabel: string;
   dark: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onAddToBanner: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: p.id });
@@ -208,6 +278,26 @@ function SortableProductMobileAdminCard({
           </button>
           <button
             type="button"
+            disabled={!p.image.trim()}
+            title={
+              p.image.trim() ?
+                'Bu məhsulun şəkili ilə əsas səhifə karuselində yeni slayt'
+              : 'Əvvəlcə məhsula şəkil yükləyin'
+            }
+            className={`touch-manipulation rounded-xl p-2 ${
+              p.image.trim() ?
+                dark ?
+                  'bg-primary/90 text-white'
+                : 'bg-primary/15 text-primary'
+              : `${dark ? 'bg-neutral-800/50 text-neutral-600' : 'bg-neutral-100 text-neutral-400'} cursor-not-allowed`
+            }`}
+            aria-label="Karusele banner əlavə et"
+            onClick={onAddToBanner}
+          >
+            <Images className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             className={`touch-manipulation rounded-xl bg-red-500/15 p-2 ${
               dark ? 'text-red-300' : 'text-red-600'
             }`}
@@ -228,12 +318,14 @@ function SortableProductTableRowAdmin({
   dark,
   onEdit,
   onDelete,
+  onAddToBanner,
 }: {
   product: Product;
   categoryLabel: string;
   dark: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onAddToBanner: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: p.id });
@@ -297,6 +389,28 @@ function SortableProductTableRowAdmin({
       </td>
       <td className="px-4 py-2 font-black text-primary">
         {(p.discountPrice ?? p.price).toFixed(2)} ₼
+      </td>
+      <td className="px-2 py-2">
+        <button
+          type="button"
+          disabled={!p.image.trim()}
+          title={
+            p.image.trim()
+              ? 'Karuselə şəkil ilə slayt'
+              : 'Şəkil yoxdur'
+          }
+          className={`inline-flex touch-manipulation items-center justify-center rounded-xl p-2 ${
+            p.image.trim()
+              ? dark
+                ? 'bg-primary/90 text-white'
+                : 'bg-primary/15 text-primary'
+              : `${dark ? 'bg-neutral-800/50 text-neutral-600' : 'bg-neutral-100 text-neutral-400'} cursor-not-allowed`
+          }`}
+          aria-label="Karusele əlavə et"
+          onClick={onAddToBanner}
+        >
+          <Images className="h-4 w-4" />
+        </button>
       </td>
       <td className="whitespace-nowrap px-4 py-2 text-right">
         <button
@@ -934,8 +1048,8 @@ export default function AdminPanel() {
                 </div>
 
                 <p className={`text-xs font-bold ${dark ? 'text-neutral-500' : 'text-neutral-500'}`}>
-                  Sıralama: solundakı ikonu tutub sürüşdürün — yalnız cari filtirdə görünən
-                  məhsulların sırası yenilənir.
+                  Sıralama: sol ikonu tutub sürüşdürün — yalnız cari filtrdə görünən məhsulların sırası yenilənir.
+                  «Banner» sütunu: məhsul şəkil və mətni ilə əsas səhifə karuselində yeni slayt əlavə edir.
                 </p>
 
                 {compactUi ?
@@ -954,6 +1068,9 @@ export default function AdminPanel() {
                             setProductModal({ ...p });
                           }}
                           onDelete={() => deleteProduct(p.id)}
+                          onAddToBanner={() =>
+                            appendProductAsBannerSlide(setDraft, p)
+                          }
                         />
                       </Fragment>
                     ))}
@@ -980,6 +1097,12 @@ export default function AdminPanel() {
                           <th className="px-4 py-3">Ad</th>
                           <th className="px-4 py-3">Kateqoriya</th>
                           <th className="px-4 py-3">Qiymət</th>
+                          <th
+                            className="px-2 py-3 text-center"
+                            title="Əsas səhifə karuselinə məhsul şəkili ilə slayt"
+                          >
+                            Banner
+                          </th>
                           <th className="px-4 py-3 text-right">Əməliyyat</th>
                         </tr>
                       </thead>
@@ -998,6 +1121,9 @@ export default function AdminPanel() {
                                 setProductModal({ ...p });
                               }}
                               onDelete={() => deleteProduct(p.id)}
+                              onAddToBanner={() =>
+                                appendProductAsBannerSlide(setDraft, p)
+                              }
                             />
                           </Fragment>
                         ))}
@@ -1459,6 +1585,9 @@ export default function AdminPanel() {
           isNew={isNewProduct}
           onClose={() => setProductModal(null)}
           onSave={(p) => upsertProduct(p)}
+          appendProductBannerSlide={(prod) =>
+            appendProductAsBannerSlide(setDraft, prod)
+          }
         />
       : null}
     </div>
@@ -1619,6 +1748,7 @@ function ProductModal({
   isNew,
   onClose,
   onSave,
+  appendProductBannerSlide,
 }: {
   product: Product;
   categories: Category[];
@@ -1626,6 +1756,7 @@ function ProductModal({
   isNew: boolean;
   onClose: () => void;
   onSave: (p: Product) => void;
+  appendProductBannerSlide: (p: Product) => void;
 }) {
   const [draft, setDraft] = useState<Product>(() => ({ ...product }));
 
@@ -1733,31 +1864,37 @@ function ProductModal({
     : 'block text-[11px] font-black uppercase tracking-wide text-neutral-500';
 
   return (
-    <div className="fixed inset-0 z-40 flex touch-manipulation items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4">
+    <div
+      className={`fixed inset-0 z-[200] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden ${
+        dark ? 'bg-neutral-950 text-neutral-100' : 'bg-white text-neutral-900'
+      }`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="product-modal-title"
+    >
       <div
-        className={`max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl shadow-2xl sm:rounded-3xl ${
-          dark ? 'bg-neutral-950 text-neutral-100' : 'bg-white text-neutral-900'
+        className={`flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 sm:py-4 ${
+          dark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-100 bg-white'
         }`}
       >
-        <div
-          className={`sticky top-0 z-10 flex items-center justify-between border-b px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4 ${
-            dark ? 'border-neutral-800 bg-neutral-950/95' : 'border-neutral-100 bg-white/95'
+        <h2 id="product-modal-title" className="text-base font-black sm:text-lg">
+          {isNew ? 'Yeni məhsul əlavə et' : 'Məhsulu redaktə et'}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className={`shrink-0 touch-manipulation rounded-xl px-4 py-2 text-sm font-bold ${
+            dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-900'
           }`}
         >
-          <h2 className="text-base font-black sm:text-lg">
-            {isNew ? 'Yeni məhsul əlavə et' : 'Məhsulu redaktə et'}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className={`rounded-xl px-4 py-2 text-sm font-bold ${
-              dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-900'
-            }`}
-          >
-            Bağla
-          </button>
-        </div>
-        <form onSubmit={submit} className="space-y-4 p-4 pb-8 sm:space-y-5 sm:p-6">
+          Bağla
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <form
+          onSubmit={submit}
+          className="mx-auto w-full max-w-3xl space-y-4 p-4 pb-12 sm:space-y-5 sm:p-6 sm:pb-16"
+        >
           {!isNew ?
             <>
               <label className={lbl}>Məhsul ID</label>
@@ -1793,6 +1930,33 @@ function ProductModal({
             value={draft.image}
             onChange={(url) => setDraft((d) => ({ ...d, image: url }))}
           />
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              dark ? 'border-neutral-700 bg-neutral-900/35' : 'border-neutral-200 bg-neutral-50'
+            }`}
+          >
+            <p className={`text-sm font-bold ${dark ? 'text-neutral-200' : 'text-neutral-800'}`}>
+              Ana səhifə karuseli
+            </p>
+            <p
+              className={`mt-1 text-xs leading-relaxed ${
+                dark ? 'text-neutral-400' : 'text-neutral-600'
+              }`}
+            >
+              Cari forma dəyərlərinə uyğun (ad, qiymət, şəkil) yeni banner slaytı əlavə olunur —
+              sıranı sonra «Banerlər» bölməsində dəyişə bilərsiniz.
+            </p>
+            <button
+              type="button"
+              disabled={!draft.image.trim()}
+              onClick={() => appendProductBannerSlide(draft)}
+              className="mt-3 inline-flex touch-manipulation w-full items-center justify-center gap-2 rounded-xl border-2 border-primary/40 bg-primary/10 px-4 py-3 text-sm font-black text-primary sm:w-auto disabled:opacity-40"
+            >
+              <Images className="h-4 w-4 shrink-0" />
+              Şəkili karuseldə göstər
+            </button>
+          </div>
 
           <div>
             <label className={lbl}>Kateqoriya</label>
