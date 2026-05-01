@@ -103,7 +103,7 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
 
   return (
     <motion.div 
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-app-bg"
       initial={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
@@ -111,7 +111,7 @@ const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
       <div className="w-24 h-24 bg-primary rounded-[32px] flex items-center justify-center text-white text-5xl mb-4 shadow-xl shadow-primary/20">
         🔥
       </div>
-      <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">Flame Sushi</h1>
+      <h1 className="sf-display-heading text-3xl font-bold text-neutral-900">Flame Sushi</h1>
       <p className="text-primary font-semibold mt-2">Dadın Ocağı</p>
     </motion.div>
   );
@@ -432,14 +432,14 @@ export default function App() {
   return (
     <div className="app-shell pb-20">
       {/* --- Top Info Bar --- */}
-      <div className="bg-info-bg w-full py-1.5 text-center text-[10px] font-bold text-primary border-b border-orange-100 uppercase tracking-widest">
+      <div className="bg-info-bg sf-info-bar-border border-b w-full py-1.5 text-center text-[10px] font-bold text-primary uppercase tracking-widest">
         Hər gün: {BUSINESS_HOURS.open} - {BUSINESS_HOURS.close} • Sürətli Çatdırılma
       </div>
 
       {/* --- Header --- */}
-      <div className="bg-white/80 sticky top-0 z-30 backdrop-blur-md border-b border-neutral-50 shadow-sm shadow-black/5">
+      <div className="sf-nav-bar sticky top-0 z-30 backdrop-blur-md">
         <div className="container-custom py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-primary tracking-tight">Flame Sushi</h1>
+          <h1 className="sf-display-heading text-2xl font-bold text-primary">Flame Sushi</h1>
           <div className="flex items-center gap-6">
             <button 
                onClick={() => setActivePage('about')}
@@ -447,7 +447,7 @@ export default function App() {
             >
               Haqqımızda
             </button>
-            <div className="bg-orange-100 p-2 rounded-xl text-primary cursor-pointer hover:bg-orange-200 transition-colors">
+            <div className="sf-header-accent p-2 text-primary cursor-pointer transition-opacity hover:opacity-85">
               <ChevronRight size={20} className="rotate-90 md:rotate-0" />
             </div>
           </div>
@@ -473,7 +473,7 @@ export default function App() {
                 {bannerSlides.map(({ key, imageUrl, title, priceLabel }) => {
                   const bp = resolveBannerProduct(PRODUCTS, title);
                   return (
-                  <div key={key} className="relative min-w-full md:min-w-[calc(50%-8px)] h-48 md:h-64 rounded-3xl p-6 md:p-10 text-white shadow-xl shadow-orange-200/50 overflow-hidden">
+                  <div key={key} className="sf-hero-banner relative min-w-full md:min-w-[calc(50%-8px)] h-48 md:h-64 p-6 md:p-10 text-white overflow-hidden">
                     <img 
                       src={imageUrl} 
                       alt={title} 
@@ -495,7 +495,7 @@ export default function App() {
                           }
                         }}
                         disabled={!bp}
-                        className={`self-start md:self-end text-xs md:text-sm font-bold px-6 py-2.5 md:px-8 md:py-3 rounded-full transition-all shadow-xl shadow-black/20 ${
+                        className={`sf-cta-pill self-start md:self-end text-xs md:text-sm font-bold px-6 py-2.5 md:px-8 md:py-3 transition-all shadow-xl shadow-black/20 ${
                           bp
                             ? 'bg-white text-primary hover:scale-110 active:scale-95'
                             : 'cursor-not-allowed bg-white/50 text-neutral-300'
@@ -511,7 +511,7 @@ export default function App() {
             </div>
 
             {/* Kateqoriyalar — basanda həmin qrupa sükan; aşağı sükananda aktiv qrup özü yenilənir */}
-            <div className="sticky top-[52px] z-20 -mx-4 bg-white/92 px-4 pb-3 pt-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 lg:top-14">
+            <div className="sf-subnav sticky top-[52px] z-20 -mx-4 px-4 pb-3 pt-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 lg:top-14">
               <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-neutral-400">
                 Kateqoriyaya keçid
               </p>
@@ -537,7 +537,7 @@ export default function App() {
                         block: 'start',
                       });
                     }}
-                    className={`touch-manipulation whitespace-nowrap rounded-full border-2 px-5 py-2.5 text-sm font-bold transition-all ${
+                    className={`sf-category-chip touch-manipulation whitespace-nowrap border-2 px-5 py-2.5 text-sm font-bold transition-all ${
                       selectedCategory === cat.id
                         ? 'border-primary bg-primary text-white shadow-lg shadow-primary/20'
                         : 'border-neutral-100 bg-white text-neutral-400 hover:border-primary/30'
@@ -561,7 +561,7 @@ export default function App() {
                     className="scroll-mt-[7.5rem]"
                   >
                     <div className="mb-5 flex flex-wrap items-end gap-3 border-b border-neutral-100 pb-3">
-                      <h3 className="text-2xl font-black tracking-tight text-neutral-900">
+                      <h3 className="sf-section-heading text-2xl font-black text-neutral-900">
                         {cat.name}
                       </h3>
                       <span className="text-xs font-bold text-neutral-400">
@@ -585,7 +585,7 @@ export default function App() {
                         return (
                           <div
                             key={product.id}
-                            className={`group relative flex flex-col space-y-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-md ${
+                            className={`sf-product-card group relative flex flex-col space-y-4 p-4 duration-300 ${
                               windowLocked ? 'opacity-70' : ''
                             }`}
                           >
@@ -594,7 +594,7 @@ export default function App() {
                                 {badge}
                               </div>
                             : null}
-                            <div className="aspect-square w-full overflow-hidden rounded-2xl bg-orange-50">
+                            <div className="sf-product-thumb aspect-square w-full overflow-hidden">
                               {product.image?.trim() ?
                                 <img
                                   src={product.image}
@@ -640,7 +640,7 @@ export default function App() {
                                 type="button"
                                 disabled={windowLocked}
                                 onClick={() => addToCart(product)}
-                                className={`flex h-9 w-9 items-center justify-center rounded-xl bg-primary font-bold text-white shadow-lg shadow-primary/10 transition-all hover:bg-primary-dark active:scale-90 ${
+                                className={`sf-icon-btn flex h-9 w-9 items-center justify-center bg-primary font-bold text-white transition-all hover:bg-primary-dark active:scale-90 ${
                                   windowLocked ?
                                     'cursor-not-allowed opacity-40 hover:bg-primary'
                                   : ''
@@ -674,7 +674,7 @@ export default function App() {
                   <ShoppingBag size={24} className="md:w-8 md:h-8" />
                 </div>
                 <div>
-                  <h2 className="text-3xl md:text-4xl font-extrabold text-neutral-900 tracking-tight">Səbətim</h2>
+                  <h2 className="sf-display-heading text-3xl md:text-4xl font-extrabold text-neutral-900">Səbətim</h2>
                   <p className="text-xs md:text-sm font-medium text-neutral-400">Cəmi {cartCount} məhsul</p>
                 </div>
               </div>
@@ -698,7 +698,7 @@ export default function App() {
                 <>
                   <div className="grid gap-4 md:gap-6">
                     {cart.map(item => (
-                      <div key={item.id} className="group flex items-center gap-4 md:gap-6 bg-white border border-neutral-100 p-4 md:p-5 rounded-[28px] md:rounded-[32px] shadow-sm hover:shadow-md transition-all duration-300">
+                      <div key={item.id} className="sf-cart-row group flex items-center gap-4 md:gap-6 p-4 md:p-5 transition-all duration-300 hover:opacity-[0.98]">
                         <div className="relative overflow-hidden rounded-xl md:rounded-2xl w-20 h-20 md:w-28 md:h-28 shrink-0 shadow-lg shadow-black/5">
                           <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
                         </div>
@@ -725,7 +725,7 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="bg-primary text-white p-6 md:p-10 rounded-[32px] md:rounded-[48px] space-y-6 md:space-y-8 shadow-2xl shadow-primary/20 relative overflow-hidden">
+                  <div className="sf-cart-panel bg-primary text-white p-6 md:p-10 space-y-6 md:space-y-8 shadow-2xl shadow-primary/20 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-32 -mt-32" />
                     <div className="space-y-4 relative z-10">
                       <div className="flex items-center justify-between text-white/60 font-bold uppercase tracking-widest text-[10px] md:text-xs">
@@ -911,7 +911,7 @@ export default function App() {
            >
               <div className="max-w-4xl mx-auto space-y-12 px-4">
                 <div className="space-y-6 text-center">
-                  <h2 className="text-5xl md:text-7xl font-black leading-tight text-neutral-900 tracking-tighter">Dadlı Sushi-nin Unikal Ünvanı</h2>
+                  <h2 className="sf-display-heading text-5xl md:text-7xl font-black leading-tight text-neutral-900">Dadlı Sushi-nin Unikal Ünvanı</h2>
                   <div className="w-32 h-2 bg-primary rounded-full mx-auto shadow-2xl shadow-primary/40" />
                   <p className="text-xl md:text-2xl text-neutral-500 leading-relaxed font-semibold max-w-3xl mx-auto whitespace-pre-line">
                     {(catalog.siteSettings?.aboutText?.trim()) ||
@@ -920,24 +920,24 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                  <div className="bg-white p-10 rounded-[40px] space-y-6 border border-neutral-100 shadow-sm text-center hover:shadow-xl transition-all duration-300">
-                    <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center text-primary shadow-inner mx-auto"><Truck size={40} /></div>
+                  <div className="sf-product-card text-center hover:opacity-[0.98] p-10 space-y-6">
+                    <div className="sf-header-accent w-20 h-20 flex items-center justify-center text-primary shadow-inner mx-auto"><Truck size={40} /></div>
                     <div className="space-y-2">
-                        <h4 className="font-extrabold text-2xl text-neutral-800">Sürətli Çatdırılma</h4>
+                        <h4 className="sf-section-heading font-extrabold text-2xl text-neutral-800">Sürətli Çatdırılma</h4>
                         <p className="text-sm text-neutral-400 font-medium">Şəhər daxili seçilmiş ünvanlara 45 dəqiqə ərzində çatdırırıq</p>
                     </div>
                   </div>
-                  <div className="bg-white p-10 rounded-[40px] space-y-6 border border-neutral-100 shadow-sm text-center hover:shadow-xl transition-all duration-300">
-                    <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center text-primary shadow-inner mx-auto"><Store size={40} /></div>
+                  <div className="sf-product-card text-center hover:opacity-[0.98] p-10 space-y-6">
+                    <div className="sf-header-accent w-20 h-20 flex items-center justify-center text-primary shadow-inner mx-auto"><Store size={40} /></div>
                     <div className="space-y-2">
-                        <h4 className="font-extrabold text-2xl text-neutral-800">Peşəkar Xidmət</h4>
+                        <h4 className="sf-section-heading font-extrabold text-2xl text-neutral-800">Peşəkar Xidmət</h4>
                         <p className="text-sm text-neutral-400 font-medium">Hər bir sifarişə xüsusi diqqət və yüksək səviyyəli servis</p>
                     </div>
                   </div>
-                  <div className="bg-white p-10 rounded-[40px] space-y-6 border border-neutral-100 shadow-sm text-center hover:shadow-xl transition-all duration-300">
-                    <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center text-primary shadow-inner mx-auto"><ShoppingBag size={40} /></div>
+                  <div className="sf-product-card text-center hover:opacity-[0.98] p-10 space-y-6">
+                    <div className="sf-header-accent w-20 h-20 flex items-center justify-center text-primary shadow-inner mx-auto"><ShoppingBag size={40} /></div>
                     <div className="space-y-2">
-                        <h4 className="font-extrabold text-2xl text-neutral-800">Təzə Məhsullar</h4>
+                        <h4 className="sf-section-heading font-extrabold text-2xl text-neutral-800">Təzə Məhsullar</h4>
                         <p className="text-sm text-neutral-400 font-medium">Sizin üçün hər gün ən təzə və keyfiyyətli dəniz məhsulları</p>
                     </div>
                   </div>
@@ -995,7 +995,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* --- Floating Bottom Nav --- */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-lg border-t border-neutral-100">
+      <div className="fixed bottom-0 left-0 right-0 z-40 sf-bottom-nav">
         <div className="container-custom py-4 flex justify-around sm:justify-center sm:gap-24 items-center">
           <button 
             onClick={() => setActivePage('home')}

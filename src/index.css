@@ -1,54 +1,365 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800;9..144,900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Inter", sans-serif;
-  
-  --color-primary: #FF6B35;
+
+  --color-primary: #ff6b35;
   --color-primary-dark: #ea580c;
-  --color-app-bg: #F2F2F7;
-  --color-info-bg: #FFF5F0;
+  --color-app-bg: #f2f2f7;
+  --color-info-bg: #fff5f0;
+}
+
+@layer components {
+  .sf-display-heading {
+    font-family: var(--sf-heading-font);
+    font-weight: var(--sf-heading-weight);
+    letter-spacing: var(--sf-heading-tracking);
+    font-variation-settings: var(--sf-heading-variation, normal);
+    line-height: var(--sf-heading-leading, 1.15);
+  }
+
+  .sf-section-heading {
+    font-family: var(--sf-section-font, var(--sf-heading-font));
+    font-weight: var(--sf-section-weight, var(--sf-heading-weight));
+    letter-spacing: var(--sf-section-tracking, inherit);
+    text-transform: var(--sf-section-transform, none);
+  }
+
+  .sf-hero-banner {
+    border-radius: var(--sf-banner-radius);
+    box-shadow: var(--sf-banner-shadow);
+  }
+
+  .sf-cta-pill {
+    border-radius: var(--sf-banner-cta-radius);
+  }
+
+  .sf-category-chip {
+    border-radius: var(--sf-chip-radius);
+  }
+
+  .sf-product-card {
+    border-radius: var(--sf-card-radius);
+    box-shadow: var(--sf-card-shadow);
+    border: var(--sf-card-border);
+    background-color: rgb(255 255 255 / var(--sf-card-opacity, 1));
+    backdrop-filter: var(--sf-card-backdrop);
+    transition:
+      transform 0.25s ease,
+      box-shadow 0.25s ease;
+  }
+
+  html[data-site-theme='flame'] .sf-product-card:hover,
+  html[data-site-theme='sakura'] .sf-product-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sf-card-shadow-hover, var(--sf-card-shadow));
+  }
+
+  html[data-site-theme='flame'] {
+    --sf-card-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.1);
+  }
+
+  html[data-site-theme='sakura'] {
+    --sf-card-shadow-hover: 0 20px 52px rgb(219 39 119 / 0.16);
+  }
+
+  html[data-site-theme='ocean'] .sf-product-card:hover {
+    transform: translate(-3px, -3px);
+    box-shadow: 8px 8px 0 rgb(14 165 233 / 0.22);
+  }
+
+  .sf-product-thumb {
+    border-radius: var(--sf-thumb-radius);
+    background-color: var(--sf-thumb-bg);
+    border: var(--sf-thumb-border, none);
+  }
+
+  .sf-icon-btn {
+    border-radius: var(--sf-btn-icon-radius);
+    box-shadow: var(--sf-icon-btn-shadow, none);
+    border: var(--sf-icon-btn-border, none);
+  }
+
+  .sf-header-accent {
+    background-color: var(--sf-header-accent-bg);
+    border-radius: var(--sf-header-accent-radius);
+  }
+
+  .sf-info-bar-border {
+    border-bottom-color: var(--sf-info-bar-bc);
+    border-bottom-width: var(--sf-info-bar-bw, 1px);
+  }
+
+  .sf-nav-bar {
+    background-color: var(--sf-nav-bg, rgb(255 255 255 / 0.92));
+    border-bottom-style: solid;
+    border-bottom-width: var(--sf-nav-border-h, 1px);
+    border-bottom-color: var(--sf-nav-bc, rgb(245 245 245));
+    box-shadow: var(--sf-nav-shadow, 0 1px 3px rgb(0 0 0 / 0.05));
+  }
+
+  html[data-site-theme='ocean'] .sf-nav-bar {
+    backdrop-filter: none !important;
+  }
+
+  html[data-site-theme='ocean'] .sf-subnav {
+    backdrop-filter: none !important;
+  }
+
+  .sf-subnav {
+    background-color: var(--sf-subnav-bg);
+    backdrop-filter: var(--sf-subnav-blur);
+    border-bottom: var(--sf-subnav-border-bottom, none);
+  }
+
+  .sf-bottom-nav {
+    background-color: var(--sf-bottom-nav-bg);
+    backdrop-filter: var(--sf-bottom-blur);
+    border-top-style: solid;
+    border-top-width: 1px;
+    border-top-color: var(--sf-bottom-bc);
+    box-shadow: var(--sf-bottom-shadow, none);
+  }
+
+  .sf-cart-panel {
+    border-radius: var(--sf-cart-promo-radius, 32px);
+  }
+
+  .sf-cart-row {
+    border-radius: var(--sf-cart-row-radius);
+    border: var(--sf-cart-row-border);
+    box-shadow: var(--sf-cart-row-shadow);
+    background-color: rgb(255 255 255 / var(--sf-cart-row-opacity, 1));
+    backdrop-filter: var(--sf-cart-row-backdrop);
+  }
 }
 
 @layer base {
   body {
     @apply bg-app-bg text-neutral-900 font-sans antialiased select-none;
+    font-family: var(--sf-body-font, "Inter"), ui-sans-serif, system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
-  }
-  
-  h1, h2, h3, h4 {
-    @apply font-sans tracking-tight;
+    letter-spacing: var(--sf-body-tracking, inherit);
   }
 
+  h1, h2, h3 {
+    letter-spacing: var(--sf-heading-letter, inherit);
+  }
+
+  /*
+   * Tema «Flame»: isti alovlu, yumru künc — tipik restoran kiosk
+   */
+  html[data-site-theme='flame'] {
+    --color-primary: #ff6b35;
+    --color-primary-dark: #ea580c;
+    --color-app-bg: #f2f2f7;
+    --color-info-bg: #fff5f0;
+
+    --sf-heading-font:
+      ui-sans-serif, system-ui, "Inter", "Segoe UI", sans-serif;
+    --sf-heading-weight: 800;
+    --sf-heading-tracking: -0.03em;
+    --sf-heading-variation: normal;
+    --sf-heading-leading: 1.1;
+    --sf-section-font: inherit;
+    --sf-section-weight: 900;
+    --sf-section-tracking: -0.03em;
+
+    --sf-body-font: "Inter";
+    --sf-body-tracking: -0.01em;
+
+    --sf-banner-radius: 1.35rem;
+    --sf-banner-shadow: 0 22px 50px rgb(234 88 12 / 0.22);
+    --sf-banner-cta-radius: 9999px;
+
+    --sf-card-radius: 1.25rem;
+    --sf-card-shadow: 0 6px 20px rgb(0 0 0 / 0.07);
+    --sf-card-border: 1px solid rgb(0 0 0 / 0.06);
+    --sf-card-opacity: 1;
+    --sf-card-backdrop: none;
+
+    --sf-chip-radius: 9999px;
+
+    --sf-thumb-radius: 1rem;
+    --sf-thumb-bg: rgb(255 247 237);
+    --sf-thumb-border: none;
+
+    --sf-btn-icon-radius: 0.75rem;
+    --sf-icon-btn-shadow: 0 4px 14px rgb(234 88 12 / 0.18);
+
+    --sf-header-accent-bg: rgb(255 237 213);
+    --sf-header-accent-radius: 0.75rem;
+
+    --sf-info-bar-bc: rgb(254 215 170);
+
+    --sf-nav-bg: rgb(255 255 255 / 0.92);
+    --sf-nav-bc: rgb(250 250 249);
+    --sf-nav-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+
+    --sf-subnav-bg: rgb(255 255 255 / 0.92);
+    --sf-subnav-blur: blur(12px);
+    --sf-subnav-border-bottom: none;
+
+    --sf-bottom-nav-bg: rgb(255 255 255 / 0.92);
+    --sf-bottom-blur: blur(12px);
+    --sf-bottom-bc: rgb(245 245 245);
+
+    --sf-cart-promo-radius: 36px;
+    --sf-cart-row-radius: clamp(22px, 4vw, 32px);
+    --sf-cart-row-border: 1px solid rgb(245 245 245);
+    --sf-cart-row-shadow: 0 6px 20px rgb(0 0 0 / 0.05);
+  }
+
+  /*
+   * Tema «Sakura»: yumşaq künc + serif başlıqlar, parlaq pastel kölgələr
+   */
   html[data-site-theme='sakura'] {
     --color-primary: #db2777;
     --color-primary-dark: #9d174d;
     --color-app-bg: #fdf2f8;
     --color-info-bg: #fce7f3;
+
+    --sf-heading-font:
+      "Fraunces", "Georgia", "Times New Roman", serif;
+    --sf-heading-weight: 740;
+    --sf-heading-tracking: -0.02em;
+    --sf-heading-variation: inherit;
+    --sf-heading-leading: 1.12;
+    --sf-section-font: "Fraunces", serif;
+    --sf-section-weight: 800;
+    --sf-section-tracking: -0.02em;
+
+    --sf-body-font: "DM Sans";
+    --sf-body-tracking: 0;
+
+    --sf-banner-radius: 2.35rem;
+    --sf-banner-shadow: 0 28px 60px rgb(219 39 119 / 0.2);
+    --sf-banner-cta-radius: 9999px;
+
+    --sf-card-radius: 2rem;
+    --sf-card-shadow: 0 16px 48px rgb(219 39 119 / 0.12);
+    --sf-card-border: 1px solid rgb(244 114 182 / 0.25);
+    --sf-card-opacity: 1;
+    --sf-card-backdrop: none;
+
+    --sf-chip-radius: 9999px;
+
+    --sf-thumb-radius: 1.45rem;
+    --sf-thumb-bg: rgb(252 231 243);
+    --sf-thumb-border: 1px solid rgb(251 207 232 / 0.8);
+
+    --sf-btn-icon-radius: 1rem;
+    --sf-icon-btn-shadow: 0 8px 24px rgb(219 39 119 / 0.25);
+
+    --sf-header-accent-bg: rgb(252 231 243);
+    --sf-header-accent-radius: 1rem;
+
+    --sf-info-bar-bc: rgb(251 207 232);
+
+    --sf-nav-bg: rgb(255 252 253 / 0.94);
+    --sf-nav-bc: rgb(252 231 243);
+    --sf-nav-shadow: 0 8px 32px rgb(219 39 119 / 0.06);
+
+    --sf-subnav-bg: rgb(255 252 253 / 0.94);
+    --sf-subnav-blur: blur(16px);
+    --sf-subnav-border-bottom: 1px solid rgb(251 207 232 / 0.45);
+
+    --sf-bottom-nav-bg: rgb(255 252 253 / 0.95);
+    --sf-bottom-blur: blur(16px);
+    --sf-bottom-bc: rgb(252 231 243);
+    --sf-bottom-shadow: 0 -12px 40px rgb(219 39 119 / 0.06);
+
+    --sf-cart-promo-radius: 44px;
+    --sf-cart-row-radius: clamp(26px, 5vw, 40px);
+    --sf-cart-row-border: 1px solid rgb(251 207 232 / 0.9);
+    --sf-cart-row-shadow: 0 12px 40px rgb(219 39 119 / 0.08);
   }
 
+  /*
+   * Tema «Ocean»: kəskin künc «brutalizm/qəzet» xətti, çıxarılmış sərhəd, daha az süni kölgə
+   */
   html[data-site-theme='ocean'] {
     --color-primary: #0369a1;
     --color-primary-dark: #0c4a6e;
     --color-app-bg: #ecfeff;
     --color-info-bg: #e0f2fe;
+
+    --sf-heading-font: "Outfit", "Inter", system-ui, sans-serif;
+    --sf-heading-weight: 840;
+    --sf-heading-tracking: -0.06em;
+    --sf-heading-variation: normal;
+    --sf-heading-leading: 0.98;
+    --sf-section-font: "Outfit", sans-serif;
+    --sf-section-weight: 800;
+    --sf-section-tracking: -0.05em;
+
+    --sf-body-font: "Outfit";
+    --sf-body-tracking: -0.02em;
+
+    --sf-banner-radius: 6px;
+    --sf-banner-shadow: 8px 8px 0 rgb(14 165 233 / 0.35);
+    --sf-banner-cta-radius: 4px;
+
+    --sf-card-radius: 4px;
+    --sf-card-shadow: 6px 6px 0 rgb(14 165 233 / 0.12);
+    --sf-card-border: 2px solid rgb(3 105 161 / 0.35);
+    --sf-card-opacity: 1;
+    --sf-card-backdrop: none;
+
+    --sf-chip-radius: 4px;
+
+    --sf-thumb-radius: 4px;
+    --sf-thumb-bg: rgb(224 242 254);
+    --sf-thumb-border: 2px solid rgb(125 211 252 / 0.95);
+
+    --sf-btn-icon-radius: 4px;
+    --sf-icon-btn-shadow: 4px 4px 0 rgb(14 165 233 / 0.45);
+    --sf-icon-btn-border: none;
+
+    --sf-header-accent-bg: rgb(224 242 254);
+    --sf-header-accent-radius: 4px;
+
+    --sf-info-bar-bc: rgb(125 211 252);
+
+    --sf-nav-bg: rgb(255 255 255 / 0.97);
+    --sf-nav-bc: rgb(3 105 161 / 0.2);
+    --sf-nav-shadow: none;
+
+    --sf-subnav-bg: rgb(255 255 255 / 0.98);
+    --sf-subnav-blur: none;
+    --sf-subnav-border-bottom: 2px solid rgb(3 105 161 / 0.18);
+
+    --sf-bottom-nav-bg: rgb(255 255 255 / 0.98);
+    --sf-bottom-blur: none;
+    --sf-bottom-bc: rgb(3 105 161 / 0.22);
+
+    --sf-cart-promo-radius: 10px;
+    --sf-cart-row-radius: 8px;
+    --sf-cart-row-border: 2px solid rgb(3 105 161 / 0.25);
+    --sf-cart-row-shadow: 5px 5px 0 rgb(14 165 233 / 0.2);
+  }
+
+  /*
+   * Default (atribut yazılmamış ilk yükləmə) — Flame kimi
+   */
+  html:not([data-site-theme]),
+  html[data-site-theme=''] {
+    color-scheme: light;
   }
 }
 
 .app-shell {
-  @apply w-full bg-white min-h-screen relative shadow-none;
-}
-
-@layer base {
-  body {
-    @apply bg-neutral-50 text-neutral-900 font-sans antialiased select-none;
-    -webkit-tap-highlight-color: transparent;
-  }
+  @apply relative min-h-screen w-full shadow-none;
+  background-color: var(--color-app-bg);
 }
 
 .container-custom {
-  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
 }
 
 .admin-scope,
@@ -57,11 +368,10 @@
   -webkit-user-select: text;
 }
 
-/* Custom scrollbar for horizontal scrolling */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 .no-scrollbar {
-  -ms-overflow-style: none;
   scrollbar-width: none;
+  -ms-overflow-style: none;
 }
