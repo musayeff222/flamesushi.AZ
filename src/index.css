@@ -20,6 +20,20 @@
   h1, h2, h3, h4 {
     @apply font-sans tracking-tight;
   }
+
+  html[data-site-theme='sakura'] {
+    --color-primary: #db2777;
+    --color-primary-dark: #9d174d;
+    --color-app-bg: #fdf2f8;
+    --color-info-bg: #fce7f3;
+  }
+
+  html[data-site-theme='ocean'] {
+    --color-primary: #0369a1;
+    --color-primary-dark: #0c4a6e;
+    --color-app-bg: #ecfeff;
+    --color-info-bg: #e0f2fe;
+  }
 }
 
 .app-shell {

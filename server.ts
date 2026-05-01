@@ -32,19 +32,26 @@ interface CatalogPayload {
     popular?: boolean;
     sortOrder?: number;
     discountPercent?: number;
+    discountFixedAmount?: number;
+    discountMode?: string;
     availabilityNote?: string;
+    orderWindow?: Record<string, unknown>;
   }>;
   businessHours: { open: string; close: string };
   whatsapp: string;
+  siteSettings?: Record<string, unknown>;
   siteBanners?: {
-    heroImageUrls: string[];
+    slides?: Array<Record<string, unknown>>;
+    heroImageUrls?: string[];
     featuredProductIds?: string[];
     carouselSeconds?: number;
   };
   promoCodes?: Array<{
     id: string;
     code: string;
-    discountPercent: number;
+    discountType?: string;
+    discountPercent?: number;
+    discountFixedAmount?: number;
     activeOnWebsite: boolean;
     validFrom?: string;
     validTo?: string;
@@ -192,8 +199,10 @@ function isCatalogPayload(body: unknown): body is CatalogPayload {
       return false;
     if (sb.featuredProductIds !== undefined && !Array.isArray(sb.featuredProductIds))
       return false;
+    if (sb.slides !== undefined && !Array.isArray(sb.slides)) return false;
   }
   if (o.promoCodes !== undefined && !Array.isArray(o.promoCodes)) return false;
+  if (o.siteSettings !== undefined && (typeof o.siteSettings !== 'object' || o.siteSettings === null)) return false;
   return true;
 }
 

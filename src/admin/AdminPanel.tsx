@@ -1,13 +1,33 @@
 import {
+  Fragment,
   type FormEvent,
   useCallback,
   useEffect,
   useMemo,
   useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowLeft,
+  GripVertical,
   Images,
   KeyRound,
   LayoutDashboard,
@@ -16,7 +36,6 @@ import {
   Moon,
   Package,
   Plus,
-  Save,
   Search,
   Settings2,
   Sparkles,
@@ -34,6 +53,11 @@ import { ADMIN_ROUTES } from './paths.ts';
 import { AdminBannersTab } from './AdminBannersTab.tsx';
 import { AdminPromosTab } from './AdminPromosTab.tsx';
 import { AdminLocalImageInput } from './AdminLocalImageInput.tsx';
+import type { ThemeId } from '../types/catalog.ts';
+import {
+  cloneCatalogJson,
+  useDebouncedAdminCatalogPersist,
+} from './catalogPersist.tsx';
 
 type Tab =
   | 'overview'
@@ -52,7 +76,7 @@ const NAV_ITEMS = [
   { id: 'categories' as const, label: 'Məhsul qrupları', Icon: Tags },
   { id: 'products' as const, label: 'Məhsullar', Icon: Package },
   { id: 'promos' as const, label: 'Promo kodlar', Icon: TicketPercent },
-  { id: 'site' as const, label: 'Sayt / WhatsApp', Icon: Settings2 },
+  { id: 'site' as const, label: 'Sayt, tema', Icon: Settings2 },
   {
     id: 'security' as const,
     label: 'Şifrə və təhlükəsizlik',
@@ -60,8 +84,241 @@ const NAV_ITEMS = [
   },
 ] as const;
 
-function cloneCatalog(c: CatalogState): CatalogState {
-  return JSON.parse(JSON.stringify(c)) as CatalogState;
+function slugIdFromName(name: string): string {
+  const raw = name
+    .trim()
+    .toLowerCase()
+    .replace(/ə/g, 'e')
+    .replace(/ı/g, 'i')
+    .replace(/ö/g, 'o')
+    .replace(/ü/g, 'u')
+    .replace(/ğ/g, 'g')
+    .replace(/ş/g, 's')
+    .replace(/ç/g, 'c')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .slice(0, 48);
+  return raw || `qrup-${Date.now()}`;
+}
+
+function reorderProductSortInGroup(
+  products: Product[],
+  groupIdsOrdered: string[],
+): Product[] {
+  const set = new Set(groupIdsOrdered);
+  const next: Product[] = [];
+  for (let i = 0; i < groupIdsOrdered.length; i++) {
+    const id = groupIdsOrdered[i]!;
+    const p = products.find((x) => x.id === id);
+    if (!p) continue;
+    next.push({ ...p, sortOrder: i * 10 });
+  }
+  return products.map((p) => {
+    if (!set.has(p.id)) return p;
+    const hit = next.find((x) => x.id === p.id);
+    return hit ?? p;
+  });
+}
+
+function SortableProductMobileAdminCard({
+  product: p,
+  categoryLabel,
+  dark,
+  onEdit,
+  onDelete,
+}: {
+  product: Product;
+  categoryLabel: string;
+  dark: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: p.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.72 : undefined,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex gap-2 rounded-2xl border p-4 ${
+        dark
+          ? 'border-neutral-800 bg-neutral-900/90'
+          : 'border-neutral-200 bg-white'
+      }`}
+    >
+      <button
+        type="button"
+        className={
+          dark
+            ? 'shrink-0 self-center rounded-lg p-2 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+            : 'shrink-0 self-center rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
+        }
+        aria-label="Sürüşdür"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-6 w-6" />
+      </button>
+      <div className="flex min-w-0 flex-1 gap-3">
+        {p.image.trim() ?
+          <img
+            src={p.image}
+            alt=""
+            className={`h-20 w-20 shrink-0 rounded-xl object-cover ${
+              dark ? 'bg-neutral-800' : 'bg-neutral-100'
+            }`}
+            referrerPolicy="no-referrer"
+          />
+        : <div
+            className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-xl text-[9px] font-bold leading-tight ${
+              dark ?
+                'border border-dashed border-neutral-600 text-neutral-500'
+              : 'border border-dashed border-neutral-300 text-neutral-400'
+            }`}
+          >
+            Şəkil yox
+          </div>
+        }
+        <div className="min-w-0 flex-1">
+          <div
+            className={`truncate font-black ${
+              dark ? 'text-neutral-100' : 'text-neutral-900'
+            }`}
+          >
+            {p.name}
+          </div>
+          <div className="truncate text-xs text-neutral-500">{categoryLabel}</div>
+          <div className="mt-1 font-black text-primary">
+            {(p.discountPrice ?? p.price).toFixed(2)} ₼
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2">
+          <button
+            type="button"
+            className={`touch-manipulation rounded-xl p-2 ${
+              dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
+            }`}
+            aria-label="Redaktə"
+            onClick={onEdit}
+          >
+            <PencilLine className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={`touch-manipulation rounded-xl bg-red-500/15 p-2 ${
+              dark ? 'text-red-300' : 'text-red-600'
+            }`}
+            aria-label="Sil"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SortableProductTableRowAdmin({
+  product: p,
+  categoryLabel,
+  dark,
+  onEdit,
+  onDelete,
+}: {
+  product: Product;
+  categoryLabel: string;
+  dark: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: p.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.72 : undefined,
+  };
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={`border-t ${dark ? 'border-neutral-800' : 'border-neutral-100'}`}
+    >
+      <td className="px-2 py-2 align-middle">
+        <button
+          type="button"
+          className={
+            dark ?
+              'rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+            : 'rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
+          }
+          aria-label="Sürüşdür"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-5 w-5" />
+        </button>
+      </td>
+      <td className="px-4 py-2">
+        {p.image.trim() ?
+          <img
+            src={p.image}
+            alt=""
+            className={`h-12 w-12 rounded-lg object-cover ${
+              dark ? 'bg-neutral-800' : 'bg-neutral-100'
+            }`}
+            referrerPolicy="no-referrer"
+          />
+        : <div
+            className={`flex h-12 w-12 items-center justify-center rounded-lg text-[8px] font-bold ${
+              dark ?
+                'border border-dashed border-neutral-600 text-neutral-500'
+              : 'border border-dashed border-neutral-300 text-neutral-400'
+            }`}
+          >
+            —
+          </div>
+        }
+      </td>
+      <td className={`px-4 py-2 font-semibold max-w-[220px] ${dark ? 'text-neutral-100' : ''}`}>
+        <span className="line-clamp-2">{p.name}</span>
+        {p.popular ?
+          <span className="ml-2 text-[10px] font-black uppercase text-primary">
+            populyar
+          </span>
+        : null}
+      </td>
+      <td className={`px-4 py-2 ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
+        {categoryLabel}
+      </td>
+      <td className="px-4 py-2 font-black text-primary">
+        {(p.discountPrice ?? p.price).toFixed(2)} ₼
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right">
+        <button
+          type="button"
+          className={`mr-2 inline-flex touch-manipulation items-center gap-2 rounded-xl px-3 py-2 font-bold ${
+            dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
+          }`}
+          onClick={onEdit}
+        >
+          <PencilLine className="h-4 w-4" /> Redaktə
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 font-bold text-red-700"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-4 w-4" /> Sil
+        </button>
+      </td>
+    </tr>
+  );
 }
 
 async function fetchAdminMe(): Promise<{
@@ -88,13 +345,14 @@ async function fetchAdminMe(): Promise<{
 
 export default function AdminPanel() {
   const navigate = useNavigate();
-  const { catalog, reload } = useCatalog();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { catalog } = useCatalog();
 
   const [authReady, setAuthReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [draft, setDraft] = useState<CatalogState>(() =>
-    cloneCatalog(defaultCatalogState),
+    cloneCatalogJson(defaultCatalogState),
   );
   const [dark, setDark] = useState(() => {
     try {
@@ -104,12 +362,58 @@ export default function AdminPanel() {
     }
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState<string>('all');
   const [productModal, setProductModal] = useState<Product | null>(null);
   const [isNewProduct, setIsNewProduct] = useState(false);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
+
+  const [catSearch, setCatSearch] = useState('');
+  const [categoryModal, setCategoryModal] = useState<
+    null | { mode: 'add' } | { mode: 'edit'; category: Category }
+  >(null);
+  const [categoryDraftName, setCategoryDraftName] = useState('');
+
+  const [compactUi, setCompactUi] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 639px)').matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const fn = () => setCompactUi(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (
+      t === 'overview'
+      || t === 'banners'
+      || t === 'categories'
+      || t === 'products'
+      || t === 'promos'
+      || t === 'site'
+      || t === 'security'
+    )
+      setTab(t);
+    if (searchParams.has('tab')) setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot query cleanup
+  }, []);
+
+  useEffect(() => {
+    if (!categoryModal) {
+      setCategoryDraftName('');
+      return;
+    }
+    if (categoryModal.mode === 'edit')
+      setCategoryDraftName(categoryModal.category.name);
+    else setCategoryDraftName('');
+  }, [categoryModal]);
+
+  useDebouncedAdminCatalogPersist(draft, catalog);
 
   useEffect(() => {
     void (async () => {
@@ -147,40 +451,13 @@ export default function AdminPanel() {
   }, [dark]);
 
   useEffect(() => {
-    setDraft(cloneCatalog(catalog));
+    setDraft(cloneCatalogJson(catalog));
   }, [catalog]);
 
   const logout = useCallback(async () => {
     await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
     navigate(ADMIN_ROUTES.login, { replace: true });
   }, [navigate]);
-
-  const saveAll = useCallback(async () => {
-    setSaving(true);
-    try {
-      const body = {
-        ...draft,
-        whatsapp: draft.whatsapp.replace(/\D/g, ''),
-      };
-      const r = await fetch('/api/admin/catalog', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const err = (await r.json().catch(() => ({}))) as { error?: string };
-        alert(err.error || 'Yadda saxlama alınmadı');
-        return;
-      }
-      await reload();
-      alert('Yadda saxlanıldı');
-    } catch {
-      alert('Şəbəkə xətası');
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, reload]);
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -203,6 +480,49 @@ export default function AdminPanel() {
     });
   }, [filteredProducts]);
 
+  const productSortIds = useMemo(
+    () => sortedFilteredProducts.map((p) => p.id),
+    [sortedFilteredProducts],
+  );
+
+  const filteredCategories = useMemo(() => {
+    const q = catSearch.trim().toLowerCase();
+    if (!q) return draft.categories;
+    return draft.categories.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q),
+    );
+  }, [draft.categories, catSearch]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const onProductDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const ids = productSortIds;
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+      const nextOrder = arrayMove(
+        ids.slice(),
+        oldIndex,
+        newIndex,
+      ) as string[];
+      setDraft((prev) => ({
+        ...prev,
+        products: reorderProductSortInGroup(prev.products, nextOrder),
+      }));
+    },
+    [productSortIds],
+  );
+
   const openNewProduct = () => {
     const id = globalThis.crypto?.randomUUID?.() ?? `p-${Date.now()}`;
     const firstCat = draft.categories[0]?.id ?? 'sets';
@@ -217,6 +537,16 @@ export default function AdminPanel() {
       popular: false,
       sortOrder: 500,
       availabilityNote: '',
+      extraNote: '',
+      discountMode: 'none',
+      discountPercent: undefined,
+      discountFixedAmount: undefined,
+      orderWindow: {
+        enabled: false,
+        start: '09:30',
+        end: '23:59',
+        hideOutsideWindow: false,
+      },
     });
   };
 
@@ -389,15 +719,6 @@ export default function AdminPanel() {
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => void saveAll()}
-                disabled={saving}
-                className="inline-flex touch-manipulation items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-black text-white shadow-md shadow-primary/20 disabled:opacity-60 sm:px-4 sm:text-sm"
-              >
-                <Save className="h-4 w-4 shrink-0" />
-                <span>{saving ? 'Saxlanır…' : 'Yadda saxla'}</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => void logout()}
                 className={`inline-flex touch-manipulation items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold sm:px-4 sm:text-sm ${
                   dark
@@ -419,7 +740,7 @@ export default function AdminPanel() {
           </p>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 pb-40 max-sm:pb-[calc(7.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-24">
+        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 pb-[max(2rem,calc(env(safe-area-inset-bottom)+1.25rem))] sm:px-6 sm:pb-24">
         {tab === 'overview' && (
           <section className="space-y-6">
             <div
@@ -434,7 +755,8 @@ export default function AdminPanel() {
               </p>
               <h1 className="mt-1 text-2xl font-black tracking-tight">İdarə paneli</h1>
               <p className="mt-2 max-w-xl text-sm opacity-85">
-                Məzmunu redaktə edin, sonra yuxarıdan və ya altdakı böyük düymədən serverə yazın.
+                Dəyişikliklər avtomatik olaraq arxa planda serverə yazılır; xüsusi «yadda saxla»
+                düyməsi yoxdur.
               </p>
               {adminEmail ? (
                 <p className={`mt-3 text-sm ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
@@ -470,9 +792,9 @@ export default function AdminPanel() {
                   tabId: 'promos' as const,
                 },
                 {
-                  title: 'Baner foto',
-                  val: draft.siteBanners?.heroImageUrls?.length ?? 0,
-                  hint: 'Əsas səhifə',
+                  title: 'Banerlər',
+                  val: draft.siteBanners?.slides?.length ?? 0,
+                  hint: 'Karusel slaytları',
                   Icon: Images,
                   tabId: 'banners' as const,
                 },
@@ -525,16 +847,18 @@ export default function AdminPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => void saveAll()}
-                disabled={saving}
-                className="rounded-2xl border border-primary/40 bg-primary/10 p-5 text-left text-primary hover:bg-primary/15 disabled:opacity-60"
+                onClick={() => setTab('site')}
+                className={`rounded-2xl border p-5 text-left ${
+                  dark
+                    ? 'border-neutral-800 bg-neutral-900/80'
+                    : 'border-neutral-200 bg-white'
+                }`}
               >
-                <Save className="mb-2 h-6 w-6" />
-                <p className="font-black">Kataloqu saxla</p>
-                <p className="mt-1 text-sm opacity-90">
-                  {saving ?
-                    'Gözləyin…'
-                  : `WhatsApp (${draft.whatsapp.slice(0, 4)}…), menyular və qiymətlər serverə yazılır.`}
+                <Settings2 className="mb-2 h-6 w-6 text-primary" />
+                <p className="font-black">Sayt, tema, əlaqə</p>
+                <p className="mt-1 text-sm opacity-80">
+                  Haqqımızda mətni, WhatsApp, iş saatları və sayt üçün 3 tema variantı burada
+                  tənzimlənir.
                 </p>
               </button>
             </div>
@@ -552,304 +876,357 @@ export default function AdminPanel() {
           <AdminPromosTab draft={draft} setDraft={setDraft} dark={dark} />
         )}
         {tab === 'products' && (
-          <section className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div className="flex flex-1 flex-col sm:flex-row gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Axtarış (ad, təsvir)…"
-                    className={`w-full pl-10 pr-3 py-3 rounded-2xl border text-sm font-medium ${
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onProductDragEnd}
+          >
+            <SortableContext
+              items={productSortIds}
+              strategy={
+                compactUi ? rectSortingStrategy : verticalListSortingStrategy
+              }
+            >
+              <section className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <div className="flex flex-1 flex-col sm:flex-row gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                      <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Axtarış (ad, təsvir)…"
+                        className={`w-full pl-10 pr-3 py-3 rounded-2xl border text-sm font-medium ${
+                          dark
+                            ? 'border-neutral-700 bg-neutral-950 text-neutral-100 placeholder:text-neutral-600'
+                            : 'border-neutral-200 bg-white text-neutral-900'
+                        }`}
+                      />
+                    </div>
+                    <select
+                      value={catFilter}
+                      onChange={(e) => setCatFilter(e.target.value)}
+                      className={`w-full sm:w-56 py-3 px-3 rounded-2xl border text-sm font-bold ${
+                        dark
+                          ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                          : 'border-neutral-200 bg-white text-neutral-900'
+                      }`}
+                    >
+                      <option value="all">Bütün kateqoriyalar</option>
+                      {draft.categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openNewProduct}
+                    className={`inline-flex touch-manipulation items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold ${
                       dark
-                        ? 'border-neutral-700 bg-neutral-950 text-neutral-100 placeholder:text-neutral-600'
-                        : 'border-neutral-200 bg-white text-neutral-900'
+                        ? 'bg-neutral-100 text-neutral-900'
+                        : 'bg-neutral-900 text-white'
                     }`}
-                  />
+                  >
+                    <Plus className="w-4 h-4" />
+                    Yeni məhsul
+                  </button>
                 </div>
-                <select
-                  value={catFilter}
-                  onChange={(e) => setCatFilter(e.target.value)}
-                  className={`w-full sm:w-56 py-3 px-3 rounded-2xl border text-sm font-bold ${
+
+                <p className={`text-xs font-bold ${dark ? 'text-neutral-500' : 'text-neutral-500'}`}>
+                  Sıralama: solundakı ikonu tutub sürüşdürün — yalnız cari filtirdə görünən
+                  məhsulların sırası yenilənir.
+                </p>
+
+                {compactUi ?
+                  <div className="grid gap-3">
+                    {sortedFilteredProducts.map((p) => (
+                      <Fragment key={p.id}>
+                        <SortableProductMobileAdminCard
+                          product={p}
+                          categoryLabel={
+                            draft.categories.find((c) => c.id === p.category)
+                              ?.name ?? p.category
+                          }
+                          dark={dark}
+                          onEdit={() => {
+                            setIsNewProduct(false);
+                            setProductModal({ ...p });
+                          }}
+                          onDelete={() => deleteProduct(p.id)}
+                        />
+                      </Fragment>
+                    ))}
+                    {filteredProducts.length === 0 && (
+                      <p className="py-10 text-center text-neutral-500">
+                        Bu filtrdə məhsul yoxdur.
+                      </p>
+                    )}
+                  </div>
+                : <div
+                    className={`overflow-x-auto rounded-2xl border ${
+                      dark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-200 bg-white'
+                    }`}
+                  >
+                    <table className="min-w-full text-sm">
+                      <thead
+                        className={`text-left text-[11px] uppercase tracking-wide text-neutral-500 ${
+                          dark ? 'bg-neutral-900/80' : 'bg-neutral-50'
+                        }`}
+                      >
+                        <tr>
+                          <th className="w-10 px-2 py-3" aria-label="Sıra" />
+                          <th className="px-4 py-3">Şəkil</th>
+                          <th className="px-4 py-3">Ad</th>
+                          <th className="px-4 py-3">Kateqoriya</th>
+                          <th className="px-4 py-3">Qiymət</th>
+                          <th className="px-4 py-3 text-right">Əməliyyat</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedFilteredProducts.map((p) => (
+                          <Fragment key={p.id}>
+                            <SortableProductTableRowAdmin
+                              product={p}
+                              categoryLabel={
+                                draft.categories.find((c) => c.id === p.category)
+                                  ?.name ?? p.category
+                              }
+                              dark={dark}
+                              onEdit={() => {
+                                setIsNewProduct(false);
+                                setProductModal({ ...p });
+                              }}
+                              onDelete={() => deleteProduct(p.id)}
+                            />
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                }
+                {!compactUi && filteredProducts.length === 0 && (
+                  <p className="py-10 text-center text-neutral-500">
+                    Bu filtrdə məhsul yoxdur.
+                  </p>
+                )}
+              </section>
+            </SortableContext>
+          </DndContext>
+        )}
+
+        {tab === 'categories' && (
+          <section className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                  value={catSearch}
+                  onChange={(e) => setCatSearch(e.target.value)}
+                  placeholder="Qrup adı və ya ID üzrə axtar…"
+                  className={`w-full rounded-2xl border py-3 pl-10 pr-3 text-sm font-medium ${
                     dark
-                      ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                      ? 'border-neutral-700 bg-neutral-950 text-neutral-100 placeholder:text-neutral-600'
                       : 'border-neutral-200 bg-white text-neutral-900'
                   }`}
-                >
-                  <option value="all">Bütün kateqoriyalar</option>
-                  {draft.categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <button
                 type="button"
-                onClick={openNewProduct}
-                className={`inline-flex touch-manipulation items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold ${
-                  dark
-                    ? 'bg-neutral-100 text-neutral-900'
-                    : 'bg-neutral-900 text-white'
-                }`}
+                onClick={() => setCategoryModal({ mode: 'add' })}
+                className="inline-flex touch-manipulation items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-black text-white shadow-lg shadow-primary/20"
               >
-                <Plus className="w-4 h-4" />
-                Yeni məhsul
+                <Plus className="h-4 w-4" />
+                Qrup əlavə et
               </button>
             </div>
-
-            <div className="grid gap-3 sm:hidden">
-              {sortedFilteredProducts.map((p) => (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {filteredCategories.map((c) => (
                 <div
-                  key={p.id}
-                  className={`flex gap-3 rounded-2xl border p-4 ${
+                  key={c.id}
+                  className={`flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-start ${
                     dark
                       ? 'border-neutral-800 bg-neutral-900/90'
                       : 'border-neutral-200 bg-white'
                   }`}
                 >
-                  {p.image.trim() ?
-                    <img
-                      src={p.image}
-                      alt=""
-                      className={`h-20 w-20 shrink-0 rounded-xl object-cover ${
-                        dark ? 'bg-neutral-800' : 'bg-neutral-100'
-                      }`}
-                      referrerPolicy="no-referrer"
+                  <div className="min-w-0 flex-1 sm:max-w-[200px]">
+                    <AdminLocalImageInput
+                      variant="row"
+                      dark={dark}
+                      label="Qrup şəkli"
+                      hint="Yalnız cihazdan (qalereya)."
+                      value={c.image}
+                      onChange={(url) => upsertCategory({ ...c, image: url })}
                     />
-                  : <div
-                      className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-xl text-[9px] font-bold leading-tight ${
-                        dark ?
-                          'border border-dashed border-neutral-600 text-neutral-500'
-                        : 'border border-dashed border-neutral-300 text-neutral-400'
-                      }`}
-                    >
-                      Şəkil yox
-                    </div>
-                  }
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className={`truncate font-black ${
-                        dark ? 'text-neutral-100' : 'text-neutral-900'
-                      }`}
-                    >
-                      {p.name}
-                    </div>
-                    <div className="truncate text-xs text-neutral-500">
-                      {draft.categories.find((c) => c.id === p.category)?.name ??
-                        p.category}
-                    </div>
-                    <div className="mt-1 font-black text-primary">
-                      {(p.discountPrice ?? p.price).toFixed(2)} ₼
-                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col gap-2">
-                    <button
-                      type="button"
-                      className={`touch-manipulation rounded-xl p-2 ${
-                        dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
-                      }`}
-                      aria-label="Redaktə"
-                      onClick={() => {
-                        setIsNewProduct(false);
-                        setProductModal({ ...p });
-                      }}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold uppercase text-neutral-400">
+                      ID: {c.id}
+                    </div>
+                    <div
+                      className={`font-black text-lg ${dark ? 'text-neutral-50' : 'text-neutral-900'}`}
                     >
-                      <PencilLine className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className={`touch-manipulation rounded-xl bg-red-500/15 p-2 ${
-                        dark ? 'text-red-300' : 'text-red-600'
-                      }`}
-                      aria-label="Sil"
-                      onClick={() => deleteProduct(p.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                      {c.name}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`touch-manipulation rounded-xl px-3 py-2 text-sm font-bold ${
+                          dark ?
+                            'bg-neutral-800 text-neutral-100'
+                          : 'bg-neutral-100 text-neutral-800'
+                        }`}
+                        onClick={() =>
+                          setCategoryModal({ mode: 'edit', category: c })
+                        }
+                      >
+                        Düzənlə
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-bold ${
+                          dark ?
+                            'bg-red-950/60 text-red-300'
+                          : 'bg-red-50 text-red-700'
+                        }`}
+                        onClick={() => deleteCategory(c.id)}
+                      >
+                        Sil
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
-              {filteredProducts.length === 0 && (
-                <p className="text-center text-neutral-500 py-10">
-                  Bu filtrdə məhsul yoxdur.
-                </p>
-              )}
             </div>
-
-            <div
-              className={`hidden overflow-x-auto rounded-2xl border sm:block ${
-                dark ? 'border-neutral-800 bg-neutral-950' : 'border-neutral-200 bg-white'
-              }`}
-            >
-              <table className="min-w-full text-sm">
-                <thead
-                  className={`text-left text-[11px] uppercase tracking-wide text-neutral-500 ${
-                    dark ? 'bg-neutral-900/80' : 'bg-neutral-50'
-                  }`}
-                >
-                  <tr>
-                    <th className="px-4 py-3">Şəkil</th>
-                    <th className="px-4 py-3">Ad</th>
-                    <th className="px-4 py-3">Kateqoriya</th>
-                    <th className="px-4 py-3">Qiymət</th>
-                    <th className="px-4 py-3 text-right">Əməliyyat</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedFilteredProducts.map((p) => (
-                    <tr key={p.id} className={`border-t ${dark ? 'border-neutral-800' : 'border-neutral-100'}`}>
-                      <td className="px-4 py-2">
-                        {p.image.trim() ?
-                          <img
-                            src={p.image}
-                            alt=""
-                            className={`h-12 w-12 rounded-lg object-cover ${
-                              dark ? 'bg-neutral-800' : 'bg-neutral-100'
-                            }`}
-                            referrerPolicy="no-referrer"
-                          />
-                        : <div
-                            className={`flex h-12 w-12 items-center justify-center rounded-lg text-[8px] font-bold ${
-                              dark ?
-                                'border border-dashed border-neutral-600 text-neutral-500'
-                              : 'border border-dashed border-neutral-300 text-neutral-400'
-                            }`}
-                          >
-                            —
-                          </div>
-                        }
-                      </td>
-                      <td className={`px-4 py-2 font-semibold max-w-[220px] ${dark ? 'text-neutral-100' : ''}`}>
-                        <span className="line-clamp-2">{p.name}</span>
-                        {p.popular ? (
-                          <span className="ml-2 text-[10px] font-black text-primary uppercase">
-                            populyar
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className={`px-4 py-2 ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
-                        {draft.categories.find((c) => c.id === p.category)?.name ??
-                          p.category}
-                      </td>
-                      <td className="px-4 py-2 font-black text-primary">
-                        {(p.discountPrice ?? p.price).toFixed(2)} ₼
-                      </td>
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          className={`mr-2 inline-flex touch-manipulation items-center gap-2 rounded-xl px-3 py-2 font-bold ${
-                            dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
-                          }`}
-                          onClick={() => {
-                            setIsNewProduct(false);
-                            setProductModal({ ...p });
-                          }}
-                        >
-                          <PencilLine className="w-4 h-4" /> Redaktə
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-2 rounded-xl px-3 py-2 bg-red-50 text-red-700 font-bold"
-                          onClick={() => deleteProduct(p.id)}
-                        >
-                          <Trash2 className="w-4 h-4" /> Sil
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {tab === 'categories' && (
-          <section className="grid gap-3 sm:grid-cols-2">
-            <CategoryCard
-              dark={dark}
-              onAdd={() => {
-                const id =
-                  prompt('Kateqoriya ID (ingilis, nöqtəsiz)')?.trim().toLowerCase() ??
-                  '';
-                if (!id) return;
-                if (draft.categories.some((c) => c.id === id)) {
-                  alert('Bu ID mövcuddur');
-                  return;
-                }
-                const name =
-                  prompt('Kateqoriya adı (nümayiş üçün)')?.trim() ?? '';
-                upsertCategory({
-                  id,
-                  name: name || id,
-                  image: '',
-                });
-              }}
-            />
-            {draft.categories.map((c) => (
-              <div
-                key={c.id}
-                className={`flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-start ${
-                  dark
-                    ? 'border-neutral-800 bg-neutral-900/90'
-                    : 'border-neutral-200 bg-white'
-                }`}
-              >
-                <div className="min-w-0 flex-1 sm:max-w-[200px]">
-                  <AdminLocalImageInput
-                    variant="row"
-                    dark={dark}
-                    label="Kateqoriya şəkli"
-                    hint="Yalnız cihazdan (qalereya)."
-                    value={c.image}
-                    onChange={(url) => upsertCategory({ ...c, image: url })}
-                  />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-bold uppercase text-neutral-400">
-                    ID: {c.id}
-                  </div>
-                  <div className={`font-black text-lg ${dark ? 'text-neutral-50' : 'text-neutral-900'}`}>
-                    {c.name}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={`touch-manipulation rounded-xl px-3 py-2 text-sm font-bold ${
-                        dark ? 'bg-neutral-800 text-neutral-100' : 'bg-neutral-100 text-neutral-800'
-                      }`}
-                      onClick={() => {
-                        const name = prompt('Yeni ad', c.name) ?? c.name;
-                        upsertCategory({ ...c, name });
-                      }}
-                    >
-                      Adı dəyiş
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded-xl px-3 py-2 text-sm font-bold ${
-                        dark ? 'bg-red-950/60 text-red-300' : 'bg-red-50 text-red-700'
-                      }`}
-                      onClick={() => deleteCategory(c.id)}
-                    >
-                      Sil
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+            {filteredCategories.length === 0 && (
+              <p className="py-12 text-center text-sm text-neutral-500">
+                Axtarışa uyğun qrup yoxdur.
+              </p>
+            )}
           </section>
         )}
 
         {tab === 'site' && (
           <section
-            className={`max-w-xl space-y-5 rounded-3xl border p-6 ${
+            className={`max-w-2xl space-y-6 rounded-3xl border p-6 ${
               dark
                 ? 'border-neutral-800 bg-neutral-900/90'
                 : 'border-neutral-200 bg-white'
             }`}
           >
+            <div>
+              <label
+                className={`mb-3 block text-xs font-black uppercase tracking-widest ${
+                  dark ? 'text-neutral-500' : 'text-neutral-400'
+                }`}
+              >
+                Görünüş (canlı seçim — sayta keçəndə görünər)
+              </label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(
+                  [
+                    { id: 'flame' as const, lab: 'Flame · alov', sub: '#FF6B35' },
+                    { id: 'sakura' as const, lab: 'Sakura', sub: '#ec4899' },
+                    { id: 'ocean' as const, lab: 'Ocean', sub: '#0ea5e9' },
+                  ] as const
+                ).map((t) => {
+                  const active =
+                    (draft.siteSettings?.themeId ?? 'flame') === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          siteSettings: {
+                            ...(d.siteSettings ?? {}),
+                            themeId: t.id,
+                          },
+                        }))
+                      }
+                      className={`touch-manipulation rounded-2xl border-2 p-3 text-left transition ${
+                        active ?
+                          dark ?
+                            'border-primary bg-neutral-950'
+                          : 'border-primary bg-primary/5'
+                        : dark ?
+                          'border-neutral-700 bg-neutral-950'
+                        : 'border-neutral-200 bg-neutral-50'
+                      }`}
+                    >
+                      <div
+                        className="mb-2 h-14 w-full rounded-xl shadow-inner"
+                        style={{
+                          background: `linear-gradient(135deg,${t.sub},${t.sub}99)`,
+                        }}
+                      />
+                      <p className="text-sm font-black">{t.lab}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label
+                className={`mb-2 block text-xs font-black uppercase tracking-widest ${
+                  dark ? 'text-neutral-500' : 'text-neutral-400'
+                }`}
+              >
+                Haqqımızda
+              </label>
+              <textarea
+                rows={5}
+                className={`w-full rounded-2xl border px-4 py-3 text-sm font-medium leading-relaxed ${
+                  dark
+                    ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                    : 'border-neutral-200 bg-white text-neutral-900'
+                }`}
+                placeholder="Şirkət və xidmət haqqında mətn…"
+                value={draft.siteSettings?.aboutText ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    siteSettings: {
+                      ...(d.siteSettings ?? {}),
+                      aboutText: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </div>
+
+            <div>
+              <label
+                className={`mb-2 block text-xs font-black uppercase tracking-widest ${
+                  dark ? 'text-neutral-500' : 'text-neutral-400'
+                }`}
+              >
+                Əlaqə nömrəsi (göstəriş)
+              </label>
+              <input
+                className={`w-full rounded-2xl border px-4 py-3 font-bold ${
+                  dark
+                    ? 'border-neutral-700 bg-neutral-950 text-neutral-100'
+                    : 'border-neutral-200 bg-white text-neutral-900'
+                }`}
+                placeholder="+994 55 533 88 98"
+                value={draft.siteSettings?.contactPhone ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    siteSettings: {
+                      ...(d.siteSettings ?? {}),
+                      contactPhone: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </div>
+
             <div>
               <label
                 className={`mb-2 block text-xs font-black uppercase tracking-widest ${
@@ -874,7 +1251,7 @@ export default function AdminPanel() {
                 inputMode="numeric"
               />
               <p className={`mt-2 text-xs ${dark ? 'text-neutral-500' : 'text-neutral-500'}`}>
-                Nömrə üçün sifariş linkləri yaradılır (məs.: 994xxxxxxxxx).
+                Sifariş mesajları bu nömrəyə yönləndirilir.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -933,7 +1310,82 @@ export default function AdminPanel() {
       </main>
       </div>
 
-      {productModal && (
+      {categoryModal ?
+        <div className="fixed inset-0 z-50 flex touch-manipulation items-end justify-center bg-black/55 p-0 sm:items-center sm:p-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className={`max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-3xl p-5 shadow-2xl sm:rounded-3xl sm:p-6 ${
+              dark ? 'bg-neutral-950 text-neutral-100' : 'bg-white text-neutral-900'
+            }`}
+          >
+            <h2 className="text-lg font-black">
+              {categoryModal.mode === 'add' ? 'Yeni qrup' : 'Qrupu düzənlə'}
+            </h2>
+            <label
+              className={`mt-4 block text-[11px] font-black uppercase ${
+                dark ? 'text-neutral-500' : 'text-neutral-500'
+              }`}
+            >
+              Qrup adı
+            </label>
+            <input
+              autoFocus
+              value={categoryDraftName}
+              onChange={(e) => setCategoryDraftName(e.target.value)}
+              className={
+                dark
+                  ? 'mt-2 w-full rounded-2xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-base font-bold'
+                  : 'mt-2 w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-base font-bold'
+              }
+              placeholder="Məs.: Premium setlər"
+            />
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className={
+                  dark
+                    ? 'rounded-xl border border-neutral-700 px-5 py-3 text-sm font-bold'
+                    : 'rounded-xl border border-neutral-200 px-5 py-3 text-sm font-bold'
+                }
+                onClick={() => {
+                  setCategoryModal(null);
+                  setCategoryDraftName('');
+                }}
+              >
+                Ləğv et
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-primary px-5 py-3 text-sm font-black text-white shadow-lg shadow-primary/20"
+                onClick={() => {
+                  const name = categoryDraftName.trim();
+                  if (!name) return;
+                  if (categoryModal.mode === 'add') {
+                    const id = slugIdFromName(name);
+                    if (draft.categories.some((c) => c.id === id)) {
+                      alert('Bu addan və ya ID-dən qrup artıq var — adı bir az dəyişin.');
+                      return;
+                    }
+                    upsertCategory({ id, name, image: '' });
+                  } else {
+                    upsertCategory({
+                      ...categoryModal.category,
+                      name,
+                    });
+                  }
+                  setCategoryModal(null);
+                  setCategoryDraftName('');
+                }}
+              >
+                {categoryModal.mode === 'add' ? 'Əlavə et' : 'Yenilə'}
+              </button>
+            </div>
+          </div>
+        </div>
+      : null}
+
+      {productModal ?
         <ProductModal
           product={productModal}
           categories={draft.categories}
@@ -942,24 +1394,7 @@ export default function AdminPanel() {
           onClose={() => setProductModal(null)}
           onSave={(p) => upsertProduct(p)}
         />
-      )}
-
-      <div
-        className={`fixed bottom-0 left-0 right-0 z-30 border-t p-4 sm:hidden ${
-          dark
-            ? 'border-neutral-800 bg-neutral-950/95 pb-[max(1rem,env(safe-area-inset-bottom))]'
-            : 'border-neutral-200 bg-white pb-[max(1rem,env(safe-area-inset-bottom))]'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => void saveAll()}
-          disabled={saving}
-          className="w-full touch-manipulation rounded-2xl bg-primary py-4 text-base font-black text-white shadow-lg shadow-primary/20 disabled:opacity-60"
-        >
-          {saving ? 'Saxlanır…' : 'Yadda saxla'}
-        </button>
-      </div>
+      : null}
     </div>
   );
 }
@@ -1110,22 +1545,6 @@ function AdminSecurityTab({
   );
 }
 
-function CategoryCard({ onAdd, dark }: { onAdd: () => void; dark: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onAdd}
-      className={`flex min-h-[120px] items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 font-black transition hover:border-primary hover:text-primary ${
-        dark
-          ? 'border-neutral-600 text-neutral-300'
-          : 'border-neutral-300 text-neutral-600'
-      }`}
-    >
-      <Plus className="w-5 h-5" />
-      Yeni kateqoriya
-    </button>
-  );
-}
 
 function ProductModal({
   product,
@@ -1159,15 +1578,13 @@ function ProductModal({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const price = Number(draft.price);
+    let price = Number(draft.price);
+    if (!Number.isFinite(price) || price < 0) price = 0;
+
     let discountPrice = draft.discountPrice;
     if (discountPrice !== undefined) {
       const d = Number(discountPrice);
-      discountPrice = Number.isFinite(d) && d > 0 ? d : undefined;
-    }
-    if (!Number.isFinite(price) || price <= 0) {
-      alert('Qiyməti düzgün daxil edin');
-      return;
+      discountPrice = Number.isFinite(d) && d >= 0 ? d : undefined;
     }
     if (!draft.name.trim()) {
       alert('Ad boş ola bilməz');
@@ -1177,13 +1594,15 @@ function ProductModal({
       alert('Şəkili cihazdan seçib yükləyin');
       return;
     }
+
     const dp =
       typeof discountPrice === 'number' &&
       Number.isFinite(discountPrice) &&
-      discountPrice > 0 &&
+      discountPrice >= 0 &&
       discountPrice < price
         ? discountPrice
         : undefined;
+
     let sortOrder: number | undefined;
     if (
       draft.sortOrder !== undefined &&
@@ -1193,28 +1612,52 @@ function ProductModal({
       const s = Number(draft.sortOrder);
       if (Number.isFinite(s)) sortOrder = Math.round(s);
     }
+
+    const mode = draft.discountMode ?? 'none';
     let discountPercentField: number | undefined;
-    if (
-      draft.discountPercent !== undefined &&
-      draft.discountPercent !== null &&
-      String(draft.discountPercent) !== ''
-    ) {
+    let discountFixedField: number | undefined;
+    if (mode === 'percent') {
       const p = Number(draft.discountPercent);
       if (Number.isFinite(p) && p > 0 && p <= 100)
         discountPercentField = Math.round(p);
     }
+    if (mode === 'fixed') {
+      const f = Number(draft.discountFixedAmount);
+      if (Number.isFinite(f) && f > 0)
+        discountFixedField = Math.min(999999, Math.round(f * 100) / 100);
+    }
+
     const availabilityNote =
       draft.availabilityNote?.trim() ?
         draft.availabilityNote.trim().slice(0, 1600)
       : undefined;
+    const extraNote =
+      draft.extraNote?.trim() ?
+        draft.extraNote.trim().slice(0, 1600)
+      : undefined;
+
+    const ow = draft.orderWindow;
+    const orderWindow =
+      ow?.enabled ?
+        {
+          enabled: true,
+          start: (ow.start ?? '09:30').trim() || '09:30',
+          end: (ow.end ?? '23:59').trim() || '23:59',
+          hideOutsideWindow: Boolean(ow.hideOutsideWindow),
+        }
+      : { enabled: false };
 
     onSave({
       ...draft,
       price,
       discountPrice: dp,
       sortOrder,
+      discountMode: mode === 'none' ? undefined : mode,
       discountPercent: discountPercentField,
+      discountFixedAmount: discountFixedField,
       availabilityNote,
+      extraNote,
+      orderWindow,
     });
   }
 
@@ -1226,7 +1669,7 @@ function ProductModal({
   return (
     <div className="fixed inset-0 z-40 flex touch-manipulation items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4">
       <div
-        className={`max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl shadow-2xl sm:rounded-3xl ${
+        className={`max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl shadow-2xl sm:rounded-3xl ${
           dark ? 'bg-neutral-950 text-neutral-100' : 'bg-white text-neutral-900'
         }`}
       >
@@ -1304,7 +1747,7 @@ function ProductModal({
 
           <div className="grid grid-cols-2 gap-3 gap-y-4">
             <div>
-              <label className={lbl}>Qiymət (₼)</label>
+              <label className={lbl}>Əsas qiymət (₼)</label>
               <input
                 type="number"
                 step="0.01"
@@ -1318,14 +1761,14 @@ function ProductModal({
               />
             </div>
             <div>
-              <label className={lbl}>Endirim qiyməti</label>
+              <label className={lbl}>Təklif qiyməti (₼)</label>
               <input
                 type="number"
                 step="0.01"
                 min={0}
                 inputMode="decimal"
                 className={ink}
-                placeholder="—"
+                placeholder="Boş = əsas qiymət"
                 value={draft.discountPrice ?? ''}
                 onChange={(e) =>
                   setDraft((d) => ({
@@ -1339,6 +1782,68 @@ function ProductModal({
           </div>
 
           <div>
+            <label className={lbl}>Endirim badge (köşədə nişan)</label>
+            <select
+              className={`${ink} ${dark ? '!bg-neutral-950' : '!bg-white'}`}
+              value={draft.discountMode ?? 'none'}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  discountMode: e.target.value as Product['discountMode'],
+                }))
+              }
+            >
+              <option value="none">Göstərmə</option>
+              <option value="percent">Faiz (%)</option>
+              <option value="fixed">Sabit məbləğ (₼)</option>
+            </select>
+          </div>
+
+          {(draft.discountMode ?? 'none') === 'percent' ?
+            <div>
+              <label className={lbl}>Endirim faizi (%)</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                inputMode="numeric"
+                placeholder="15"
+                className={ink}
+                value={draft.discountPercent ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    discountPercent:
+                      e.target.value === '' ? undefined : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+          : null}
+
+          {(draft.discountMode ?? 'none') === 'fixed' ?
+            <div>
+              <label className={lbl}>Sabit məbləğ nişanı (₼)</label>
+              <input
+                type="number"
+                step="0.01"
+                min={0}
+                inputMode="decimal"
+                className={ink}
+                placeholder="Məs.: 5"
+                value={draft.discountFixedAmount ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    discountFixedAmount:
+                      e.target.value ? Number(e.target.value) : undefined,
+                  }))
+                }
+              />
+            </div>
+          : null}
+
+          <div>
             <label className={lbl}>Təsvir</label>
             <textarea
               className={tac}
@@ -1350,9 +1855,21 @@ function ProductModal({
             />
           </div>
 
+          <div>
+            <label className={lbl}>Əlavə qeyd sahəsi</label>
+            <textarea
+              className={`${tac.replace('min-h-[88px]', 'min-h-[64px]')}`}
+              placeholder="Kiçik mətn blok (isti saxla, komponentlər və s.)"
+              value={draft.extraNote ?? ''}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, extraNote: e.target.value }))
+              }
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={lbl}>Sıra</label>
+              <label className={lbl}>Sıra nömrəsi</label>
               <input
                 type="number"
                 step="1"
@@ -1371,29 +1888,122 @@ function ProductModal({
                 }
               />
             </div>
-            <div>
-              <label className={lbl}>Endirim % (məlumat)</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                inputMode="numeric"
-                placeholder="İstəyə bağlı"
-                className={ink}
-                value={draft.discountPercent ?? ''}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    discountPercent:
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                  }))
-                }
-              />
+            <div className="flex items-end pb-2">
+              <label
+                className={`flex cursor-pointer select-none items-center gap-3 text-sm font-bold ${
+                  dark ? 'text-neutral-200' : 'text-neutral-800'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.popular)}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, popular: e.target.checked }))
+                  }
+                  className="h-5 w-5 rounded accent-primary"
+                />
+                Populyar
+              </label>
             </div>
           </div>
 
+          <div
+            className={`rounded-2xl border p-4 space-y-3 ${
+              dark ? 'border-neutral-700 bg-neutral-900/40' : 'border-neutral-200 bg-neutral-50'
+            }`}
+          >
+            <label
+              className={`flex cursor-pointer select-none items-center justify-between gap-3 text-sm font-bold ${
+                dark ? 'text-neutral-100' : 'text-neutral-800'
+              }`}
+            >
+              <span>Məhdud sifariş vaxtı</span>
+              <input
+                type="checkbox"
+                className="h-5 w-9 accent-primary"
+                checked={Boolean(draft.orderWindow?.enabled)}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    orderWindow: {
+                      enabled: e.target.checked,
+                      start: d.orderWindow?.start ?? '09:30',
+                      end: d.orderWindow?.end ?? '23:59',
+                      hideOutsideWindow:
+                        d.orderWindow?.hideOutsideWindow ?? false,
+                    },
+                  }))
+                }
+              />
+            </label>
+            {draft.orderWindow?.enabled ?
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={`${lbl} mb-1`}>Başlanğıc</label>
+                    <input
+                      type="time"
+                      className={ink}
+                      value={draft.orderWindow?.start ?? '09:30'}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          orderWindow: {
+                            ...(d.orderWindow ?? {}),
+                            enabled: true,
+                            start: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className={`${lbl} mb-1`}>Bitiş</label>
+                    <input
+                      type="time"
+                      className={ink}
+                      value={draft.orderWindow?.end ?? '23:59'}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          orderWindow: {
+                            ...(d.orderWindow ?? {}),
+                            enabled: true,
+                            end: e.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <label
+                  className={`flex cursor-pointer gap-3 text-xs font-bold leading-snug ${
+                    dark ? 'text-neutral-300' : 'text-neutral-700'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                    checked={Boolean(draft.orderWindow?.hideOutsideWindow)}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        orderWindow: {
+                          ...(d.orderWindow ?? { enabled: true }),
+                          enabled: true,
+                          hideOutsideWindow: e.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  Saatdan kənarda menyuda gizlət (əz işarələsinizsə bloklanmış görünüş + mesaj)
+                </label>
+              </>
+            : null}
+          </div>
+
           <div>
-            <label className={lbl}>Əlavə qeyd (çatdırılma və s.)</label>
+            <label className={lbl}>Əlçatanlıq qeydi (dəstək / çatdırılma)</label>
             <textarea
               className={`${tac.replace('min-h-[88px]', 'min-h-[64px]')}`}
               placeholder="İstəyə bağlı"
@@ -1404,35 +2014,12 @@ function ProductModal({
             />
           </div>
 
-          <label
-            className={`flex cursor-pointer select-none items-center gap-3 text-sm font-bold ${
-              dark ? 'text-neutral-200' : 'text-neutral-800'
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={Boolean(draft.popular)}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, popular: e.target.checked }))
-              }
-              className="h-5 w-5 rounded accent-primary"
-            />
-            Populyar məhsul
-          </label>
-
           <button
             type="submit"
             className="w-full rounded-2xl bg-primary py-4 text-base font-black text-white shadow-lg shadow-primary/25"
           >
-            Məhsulu siyahıya əlavə et
+            {isNew ? 'Məhsulu əlavə et' : 'Dəyişiklikləri tətbiq et'}
           </button>
-          <p
-            className={
-              dark ? 'text-center text-[11px] text-neutral-500' : 'text-center text-[11px] text-neutral-500'
-            }
-          >
-            Əvvəl sayt üçün paneldə «Yadda saxla» basın — serverdə qalması üçün.
-          </p>
         </form>
       </div>
     </div>

@@ -1,3 +1,16 @@
+export type DiscountDisplayMode = 'none' | 'percent' | 'fixed';
+
+/** Sifariş vaxt pəncərəsi (əsas məhsullar üçün) */
+export interface ProductOrderWindow {
+  enabled?: boolean;
+  /** "HH:mm" */
+  start?: string;
+  /** "HH:mm" — ümumi bitişdə 00:00 günün sonu kimi yozula bilər */
+  end?: string;
+  /** true: vaxt kənarında bölmədə göstərilmir; false: deaktiv + mesaj */
+  hideOutsideWindow?: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -7,12 +20,16 @@ export interface Product {
   category: string;
   image: string;
   popular?: boolean;
-  /** Siyahıda və vitrin sırası (kiçik = əvvəl) */
   sortOrder?: number;
-  /** Son endirim faizi (məlumat üçün, məs. 10) */
+  /** Vizual badge üçün endirim faizi (%), məsələn 15 */
   discountPercent?: number;
-  /** Məhsula xüsusi saat / çatdırılma qeydi */
+  /** Sabit məbləğ təklifi üçün (discountMode === fixed) — ₼ */
+  discountFixedAmount?: number;
+  discountMode?: DiscountDisplayMode;
   availabilityNote?: string;
+  /** Menyuda əlavə kiçik qeyd (təsvirdən ayrı) */
+  extraNote?: string;
+  orderWindow?: ProductOrderWindow;
 }
 
 export interface Category {
@@ -21,26 +38,49 @@ export interface Category {
   image: string;
 }
 
-/** Ana səhifə baner karuseli */
-export interface SiteBanners {
-  /** Karuseldə göstərilən şəkil URL-ləri (sıra ilə) */
-  heroImageUrls: string[];
-  /** Hər şəkilə uyğun vurğulanan məhsul ID (boş və ya qısa siyahı ola bilər) */
-  featuredProductIds: string[];
-  /** Slayt dəyişmə müddəti (saniyə) */
-  carouselSeconds: number;
+export interface HeroBannerSlide {
+  id: string;
+  name: string;
+  imageUrl: string;
+  overlayProductName: string;
+  overlayPriceLabel: string;
+  durationSeconds: number;
 }
 
-export interface PromoCodeEntry {
+/** Ana karusel — slides üstün tutulur; köhnə URL massivlər normalizdə sinxron saxlanılır */
+export interface SiteBanners {
+  slides: HeroBannerSlide[];
+  carouselSeconds?: number;
+  heroImageUrls?: string[];
+  featuredProductIds?: string[];
+}
+
+export interface PromoDiscount {
+  discountType?: 'percent' | 'fixed';
+  /** percent zamanı faiz (1–90) */
+  discountPercent?: number;
+  /** fixed zamanı səbət cəmisindən çıxılacaq ₼ (yuxarıya yuvarlatılmış) */
+  discountFixedAmount?: number;
+}
+
+export interface PromoCodeEntry extends PromoDiscount {
   id: string;
   code: string;
-  discountPercent: number;
-  /** Sayt səbətində qəbul olunur */
   activeOnWebsite: boolean;
   validFrom?: string;
   validTo?: string;
   note?: string;
   createdAt: string;
+}
+
+export type ThemeId = 'flame' | 'sakura' | 'ocean';
+
+export interface SiteSettings {
+  themeId?: ThemeId;
+  /** Haqqımızda — çoxsətirli düz mətn */
+  aboutText?: string;
+  /** Göstəriş üçün əlaqə telefon */
+  contactPhone?: string;
 }
 
 export interface CatalogState {
@@ -50,4 +90,5 @@ export interface CatalogState {
   whatsapp: string;
   siteBanners: SiteBanners;
   promoCodes: PromoCodeEntry[];
+  siteSettings?: SiteSettings;
 }

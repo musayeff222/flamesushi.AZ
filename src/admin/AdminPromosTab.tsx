@@ -1,4 +1,5 @@
 import { type Dispatch, type SetStateAction, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Calendar,
   Copy,
@@ -8,6 +9,7 @@ import {
   ToggleLeft,
 } from 'lucide-react';
 import type { CatalogState, PromoCodeEntry } from '../types/catalog.ts';
+import { ADMIN_ROUTES } from './paths.ts';
 
 type Props = {
   draft: CatalogState;
@@ -15,11 +17,6 @@ type Props = {
   dark: boolean;
 };
 
-function nowIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/** Saniyənin sonu kimi son tarix üçün müqayisə */
 function statusFor(promo: PromoCodeEntry): {
   key: string;
   short: string;
@@ -59,21 +56,6 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
 
   const pillBase =
     'inline-flex items-center rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-wide';
-
-  function addPromo() {
-    const id = globalThis.crypto?.randomUUID?.() ?? `promo-${Date.now()}`;
-    const entry: PromoCodeEntry = {
-      id,
-      code: 'YENI10',
-      discountPercent: 10,
-      activeOnWebsite: true,
-      createdAt: nowIsoDate(),
-    };
-    setDraft((d) => ({
-      ...d,
-      promoCodes: [...(d.promoCodes ?? []), entry],
-    }));
-  }
 
   function updatePromo(id: string, patch: Partial<PromoCodeEntry>) {
     setDraft((d) => ({
@@ -138,13 +120,12 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
         <h2 className="flex items-center gap-2 text-lg font-black">
           <Tag className="text-primary h-6 w-6" /> Promo kodlar
         </h2>
-        <button
-          type="button"
-          onClick={addPromo}
+        <Link
+          to={ADMIN_ROUTES.promoNew}
           className="inline-flex touch-manipulation items-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-black text-white shadow-lg shadow-primary/25"
         >
-          <Plus className="h-5 w-5" /> Yeni promo
-        </button>
+          <Plus className="h-5 w-5" /> Yeni promo kod
+        </Link>
       </div>
 
       {sorted.length === 0 ?
@@ -155,7 +136,7 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
             : 'rounded-2xl border border-dashed border-neutral-300 py-16 text-center text-neutral-500'
           }
         >
-          Hələ promo yoxdur — «Yeni promo» ilə əlavə edin.
+          Hələ promo yoxdur — «Yeni promo kod» ilə ayrı səhifədən yaradın.
         </div>
       : <ul className="flex flex-col gap-4">
           {sorted.map((p) => {
@@ -221,45 +202,120 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
                   </div>
 
                   <div>
-                    <span className={`mb-2 block ${label}`}>Endirim faizi</span>
-                    <div className="flex flex-wrap gap-2">
-                      {PRESET_PCT.map((n) => (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => updatePromo(p.id, { discountPercent: n })}
-                          className={`touch-manipulation rounded-xl px-4 py-2.5 text-sm font-black ${
-                            p.discountPercent === n ?
-                              'bg-primary text-white shadow-md'
-                            : dark ?
-                              'bg-neutral-800 text-neutral-200'
-                            : 'bg-neutral-100 text-neutral-800'
-                          }`}
-                        >
-                          {n}%
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className={dark ? 'text-sm text-neutral-400' : 'text-sm text-neutral-500'}>
-                        Düz dəyiş:
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={90}
-                        className={`${input} w-24`}
-                        value={p.discountPercent}
-                        onChange={(e) =>
+                    <span className={`mb-2 block ${label}`}>Endirim növü</span>
+                    <div className="mb-3 flex gap-2">
+                      <button
+                        type="button"
+                        className={`flex-1 touch-manipulation rounded-xl px-4 py-2.5 text-sm font-black ${
+                          p.discountType !== 'fixed' ?
+                            'bg-primary text-white shadow-md'
+                          : dark ?
+                            'bg-neutral-800 text-neutral-200'
+                          : 'bg-neutral-100 text-neutral-800'
+                        }`}
+                        onClick={() =>
                           updatePromo(p.id, {
-                            discountPercent: Math.min(
-                              90,
-                              Math.max(1, Number(e.target.value) || 1),
-                            ),
+                            discountType: 'percent',
+                            discountPercent: Math.min(90, p.discountPercent ?? 10),
+                            discountFixedAmount: undefined,
                           })
                         }
-                      />
+                      >
+                        Faiz %
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 touch-manipulation rounded-xl px-4 py-2.5 text-sm font-black ${
+                          p.discountType === 'fixed' ?
+                            'bg-primary text-white shadow-md'
+                          : dark ?
+                            'bg-neutral-800 text-neutral-200'
+                          : 'bg-neutral-100 text-neutral-800'
+                        }`}
+                        onClick={() =>
+                          updatePromo(p.id, {
+                            discountType: 'fixed',
+                            discountFixedAmount: p.discountFixedAmount ?? 5,
+                            discountPercent: undefined,
+                          })
+                        }
+                      >
+                        Sabit ₼
+                      </button>
                     </div>
+
+                    {p.discountType === 'fixed' ?
+                      <div>
+                        <label className={`${label} mb-1`}>Endirim məbləği (₼)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className={input}
+                          value={p.discountFixedAmount ?? ''}
+                          onChange={(e) =>
+                            updatePromo(p.id, {
+                              discountFixedAmount:
+                                e.target.value ?
+                                  Number(e.target.value)
+                                : undefined,
+                            })
+                          }
+                        />
+                      </div>
+                    : <>
+                        <div className="flex flex-wrap gap-2">
+                          {PRESET_PCT.map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() =>
+                                updatePromo(p.id, {
+                                  discountType: 'percent',
+                                  discountPercent: n,
+                                })
+                              }
+                              className={`touch-manipulation rounded-xl px-4 py-2.5 text-sm font-black ${
+                                p.discountPercent === n ?
+                                  'bg-primary text-white shadow-md'
+                                : dark ?
+                                  'bg-neutral-800 text-neutral-200'
+                                : 'bg-neutral-100 text-neutral-800'
+                              }`}
+                            >
+                              {n}%
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <span
+                            className={
+                              dark ?
+                                'text-sm text-neutral-400'
+                              : 'text-sm text-neutral-500'
+                            }
+                          >
+                            Dəyər:
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            className={`${input} w-24`}
+                            value={p.discountPercent ?? ''}
+                            onChange={(e) =>
+                              updatePromo(p.id, {
+                                discountType: 'percent',
+                                discountPercent: Math.min(
+                                  90,
+                                  Math.max(1, Number(e.target.value) || 1),
+                                ),
+                              })
+                            }
+                          />
+                        </div>
+                      </>
+                    }
                   </div>
 
                   <button
@@ -339,9 +395,6 @@ export function AdminPromosTab({ draft, setDraft, dark }: Props) {
         </ul>
       }
 
-      <p className="text-center text-xs text-neutral-500">
-        Əvvəl «Yadda saxla» düyməsi ilə dəyişikliklər serverdə saxlanılır.
-      </p>
     </div>
   );
 }

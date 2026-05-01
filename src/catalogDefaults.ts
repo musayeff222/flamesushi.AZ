@@ -1,9 +1,22 @@
 /**
- * Canonical menu + site copy for Flame Sushi. Admin panel edits persist in data/catalog.json on the server.
+ * Canonical menu + serverdə data/catalog.json üzərindən persist olunur.
  */
-import type { CatalogState, PromoCodeEntry } from './types/catalog';
+import type {
+  CatalogState,
+  HeroBannerSlide,
+  Product,
+  PromoCodeEntry,
+  SiteBanners,
+  SiteSettings,
+} from './types/catalog';
 
 export const defaultCatalogState: CatalogState = {
+  siteSettings: {
+    themeId: 'flame',
+    aboutText:
+      'Flame Sushi — təzə materiallar, sürətli çatdırılma və alovlu dadlar təqdim edir.',
+    contactPhone: '',
+  },
   categories: [
     { id: 'sets', name: 'Setlər', image: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=200' },
     { id: 'rolls', name: 'Roll-lar', image: 'https://images.unsplash.com/photo-1553621042-f6e147245754?auto=format&fit=crop&q=80&w=200' },
@@ -21,6 +34,8 @@ export const defaultCatalogState: CatalogState = {
       category: 'sets',
       image: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=600',
       popular: true,
+      discountMode: 'percent',
+      discountPercent: 13,
     },
     {
       id: 's2',
@@ -94,7 +109,7 @@ export const defaultCatalogState: CatalogState = {
     {
       id: 'h2',
       name: 'Hot Ebi Tempura',
-      description: 'Xırtıldayan krevet və ərinmiş pendir ilə isti roll',
+      description: 'Xırtıldayan krevet və irinmiş pendir ilə isti roll',
       price: 15,
       category: 'hot-rolls',
       image: 'https://images.unsplash.com/photo-1583623025817-d180a2221d0a?auto=format&fit=crop&q=80&w=600',
@@ -118,7 +133,7 @@ export const defaultCatalogState: CatalogState = {
     {
       id: '8',
       name: 'Coca-Cola 0.5L',
-      description: 'Sərinləşdirici buz kimi içki',
+      description: 'Sərinləşdirici içki',
       price: 2,
       category: 'drinks',
       image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&q=80&w=600',
@@ -126,7 +141,7 @@ export const defaultCatalogState: CatalogState = {
     {
       id: 'd2',
       name: 'Fanta 0.5L',
-      description: 'Meyvəli sərinləşdirici içki',
+      description: 'Meyvəli içki',
       price: 2,
       category: 'drinks',
       image: 'https://images.unsplash.com/photo-1624517452488-04869289c4ca?auto=format&fit=crop&q=80&w=600',
@@ -138,17 +153,33 @@ export const defaultCatalogState: CatalogState = {
   },
   whatsapp: '0555338898',
   siteBanners: {
-    heroImageUrls: [
-      'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=1200',
-      'https://images.unsplash.com/photo-1611143669185-af224c5e3252?auto=format&fit=crop&q=80&w=1200',
-    ],
-    featuredProductIds: ['1', 's2'],
     carouselSeconds: 4,
+    slides: [
+      {
+        id: 'slide-default-a',
+        name: 'Flame təklifi',
+        imageUrl:
+          'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=1200',
+        overlayProductName: 'Flame Set',
+        overlayPriceLabel: '39 ₼',
+        durationSeconds: 4,
+      },
+      {
+        id: 'slide-default-b',
+        name: 'Ailə menyusu',
+        imageUrl:
+          'https://images.unsplash.com/photo-1611143669185-af224c5e3252?auto=format&fit=crop&q=80&w=1200',
+        overlayProductName: 'Mega Family Set',
+        overlayPriceLabel: '58 ₼',
+        durationSeconds: 4,
+      },
+    ],
   },
   promoCodes: [
     {
       id: 'promo-flame10',
       code: 'FLAME10',
+      discountType: 'percent',
       discountPercent: 10,
       activeOnWebsite: true,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -160,71 +191,274 @@ function isIsoDateLike(s: unknown): s is string {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s);
 }
 
-/** Köhnə catalog.json-larda yeni sahələr yoxdursa doldurulur */
+function safeId(prefix: string): string {
+  const uuid = typeof globalThis !== 'undefined'
+    ? globalThis.crypto?.randomUUID?.()
+    : undefined;
+  return uuid ?? `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function clampPercent(n: number): number {
+  return Math.min(95, Math.max(1, Math.round(Number.isFinite(n) ? n : 0)));
+}
+
+function pickFallbackProduct(products: Product[], index: number): Product {
+  const pop = products.filter((p) => p.popular);
+  const pool = pop.length ? pop : products;
+  const p = pool[index % Math.max(pool.length, 1)]!;
+  return p;
+}
+
+function buildSlidesLegacy(
+  heroImageUrls: string[],
+  featuredProductIds: string[],
+  products: Product[],
+  carouselSeconds: number,
+): HeroBannerSlide[] {
+  return heroImageUrls.map((imageUrl, i) => {
+    const pid = featuredProductIds[i];
+    const prod =
+      (pid ? products.find((p) => p.id === pid) : undefined)
+      ?? pickFallbackProduct(products, i)
+      ?? {
+        id: 'x',
+        name: '',
+        description: '',
+        price: 0,
+        category: '',
+        image: '',
+      };
+    const line = prod.discountPrice ?? prod.price;
+    return {
+      id: safeId(`hb-${i}`),
+      name: `Baner ${i + 1}`,
+      imageUrl,
+      overlayProductName: prod.name,
+      overlayPriceLabel: `${Number(line).toFixed(0)} ₼`,
+      durationSeconds: Math.min(120, Math.max(2, carouselSeconds)),
+    };
+  });
+}
+
+function normalizeBannerSlide(
+  raw: unknown,
+  index: number,
+  fallbackDuration: number,
+): HeroBannerSlide {
+  const dur = Math.min(
+    360,
+    Math.max(2, Math.round(Number.isFinite(fallbackDuration) ? fallbackDuration : 4)),
+  );
+  if (!raw || typeof raw !== 'object')
+    return {
+      id: safeId(`hb-f-${index}`),
+      name: `Baner ${index + 1}`,
+      imageUrl: '',
+      overlayProductName: '',
+      overlayPriceLabel: '',
+      durationSeconds: dur,
+    };
+  const o = raw as Partial<HeroBannerSlide>;
+  return {
+    id: typeof o.id === 'string' && o.id ? o.id : safeId(`hb-${index}`),
+    name:
+      typeof o.name === 'string' && o.name.trim()
+        ? o.name.trim()
+        : `Baner ${index + 1}`,
+    imageUrl: typeof o.imageUrl === 'string' ? o.imageUrl : '',
+    overlayProductName:
+      typeof o.overlayProductName === 'string'
+        ? o.overlayProductName
+        : '',
+    overlayPriceLabel:
+      typeof o.overlayPriceLabel === 'string'
+        ? o.overlayPriceLabel
+        : `${0} ₼`,
+    durationSeconds:
+      typeof o.durationSeconds === 'number' &&
+      Number.isFinite(o.durationSeconds) &&
+      o.durationSeconds >= 2
+        ? Math.min(360, Math.round(o.durationSeconds))
+        : dur,
+  };
+}
+
+function normalizeSiteBanners(
+  raw: unknown,
+  products: Product[],
+  base: SiteBanners,
+): SiteBanners {
+  const sb =
+    raw && typeof raw === 'object'
+      ? (raw as Partial<SiteBanners> & Record<string, unknown>)
+      : undefined;
+  const carouselSeconds =
+    sb &&
+    typeof sb.carouselSeconds === 'number' &&
+    sb.carouselSeconds >= 2
+      ? Math.min(240, sb.carouselSeconds)
+      : base.carouselSeconds ?? 4;
+
+  let slidesRaw: HeroBannerSlide[] | null = null;
+  if (sb?.slides !== undefined && Array.isArray(sb.slides) && sb.slides.length > 0) {
+    slidesRaw = (sb.slides as unknown[]).map((s, i) =>
+      normalizeBannerSlide(s, i, carouselSeconds ?? 4),
+    );
+  }
+
+  let slides =
+    slidesRaw && slidesRaw.length > 0
+      ? slidesRaw
+      : (() => {
+          const urls = Array.isArray(sb?.heroImageUrls)
+            ? (sb.heroImageUrls as unknown[]).filter(
+                (u): u is string => typeof u === 'string' && Boolean(u.trim()),
+              )
+            : [];
+          const feats =
+            Array.isArray(sb?.featuredProductIds)
+              ? (sb.featuredProductIds as unknown[]).filter(
+                  (x): x is string => typeof x === 'string',
+                )
+              : [];
+          if (urls.length > 0) {
+            return buildSlidesLegacy(urls, feats, products, carouselSeconds ?? 4);
+          }
+          return base.slides;
+        })();
+
+  if (!slides.length) slides = base.slides;
+
+  return {
+    carouselSeconds,
+    slides,
+    heroImageUrls: slides.map((s) => s.imageUrl),
+    featuredProductIds: slides.map(() => ''),
+  };
+}
+
+function normalizeSiteSettings(raw: unknown, base: SiteSettings): SiteSettings {
+  if (!raw || typeof raw !== 'object')
+    return { ...base };
+  const o = raw as Partial<SiteSettings>;
+  return {
+    themeId:
+      o.themeId === 'sakura' || o.themeId === 'ocean' || o.themeId === 'flame'
+        ? o.themeId
+        : base.themeId ?? 'flame',
+    aboutText:
+      typeof o.aboutText === 'string' ? o.aboutText : base.aboutText ?? '',
+    contactPhone:
+      typeof o.contactPhone === 'string'
+        ? o.contactPhone.trim()
+        : base.contactPhone ?? '',
+  };
+}
+
+/** Köhnə kataloq strukturunu yeni sahələrlə uyğunlaşdırır */
 export function normalizeCatalogState(raw: unknown): CatalogState {
   const d = defaultCatalogState;
-  if (!raw || typeof raw !== 'object') return { ...d, products: [...d.products], categories: [...d.categories] };
+  if (!raw || typeof raw !== 'object')
+    return JSON.parse(JSON.stringify(d)) as CatalogState;
 
   const o = raw as Partial<CatalogState>;
-  const merged: CatalogState = {
+  const products = Array.isArray(o.products)
+    ? (o.products as Product[])
+    : d.products;
+
+  const siteBanners = normalizeSiteBanners(o.siteBanners, products, d.siteBanners);
+
+  const siteSettingsDefaults: SiteSettings = {
+    themeId: d.siteSettings?.themeId ?? 'flame',
+    aboutText: d.siteSettings?.aboutText ?? '',
+    contactPhone: d.siteSettings?.contactPhone ?? '',
+  };
+  const siteSettings = normalizeSiteSettings(
+    typeof o.siteSettings === 'object' && o.siteSettings !== null ?
+      (o.siteSettings as SiteSettings)
+    : {},
+    siteSettingsDefaults,
+  );
+
+  const promoCodes: PromoCodeEntry[] = (() => {
+    if (!Array.isArray(o.promoCodes)) return d.promoCodes;
+    const out: PromoCodeEntry[] = [];
+    for (const p of o.promoCodes) {
+      if (
+        !p ||
+        typeof p !== 'object' ||
+        typeof (p as PromoCodeEntry).id !== 'string' ||
+        typeof (p as PromoCodeEntry).code !== 'string' ||
+        typeof (p as PromoCodeEntry).activeOnWebsite !== 'boolean' ||
+        typeof (p as PromoCodeEntry).createdAt !== 'string'
+      )
+        continue;
+      const pc = p as PromoCodeEntry;
+      const pctRaw =
+        typeof pc.discountPercent === 'number' && Number.isFinite(pc.discountPercent)
+          ? pc.discountPercent
+          : NaN;
+
+      let fixedAmt =
+        typeof pc.discountFixedAmount === 'number' &&
+        Number.isFinite(pc.discountFixedAmount) &&
+        pc.discountFixedAmount > 0
+          ? Math.min(999999, pc.discountFixedAmount)
+          : undefined;
+
+      const wantFixed =
+        pc.discountType === 'fixed'
+        || (fixedAmt !== undefined && fixedAmt > 0 && pc.discountType !== 'percent');
+
+      if (wantFixed && !fixedAmt && Number.isFinite(pctRaw))
+        fixedAmt = Math.max(0.01, pctRaw);
+
+      const dtype: PromoCodeEntry['discountType'] =
+        wantFixed || fixedAmt ? 'fixed' : 'percent';
+
+      let discountPercentFinal: number | undefined =
+        dtype === 'percent'
+          ? clampPercent(Number.isFinite(pctRaw) ? pctRaw : 10)
+          : undefined;
+
+      let discountFixedFinal: number | undefined =
+        dtype === 'fixed' ?
+          fixedAmt ?? Math.max(0.01, Number.isFinite(pctRaw) ? pctRaw : 1)
+        : undefined;
+
+      if (dtype === 'percent' && !discountPercentFinal) discountPercentFinal = 10;
+      if (dtype === 'fixed' && discountFixedFinal === undefined)
+        discountFixedFinal = 1;
+
+      out.push({
+        id: pc.id,
+        code: String(pc.code).trim(),
+        activeOnWebsite: pc.activeOnWebsite,
+        discountType: dtype,
+        discountPercent: discountPercentFinal,
+        discountFixedAmount: discountFixedFinal,
+        validFrom: isIsoDateLike(pc.validFrom) ? pc.validFrom : undefined,
+        validTo: isIsoDateLike(pc.validTo) ? pc.validTo : undefined,
+        note: typeof pc.note === 'string' ? pc.note : undefined,
+        createdAt: pc.createdAt,
+      });
+    }
+    return out.length ? out : d.promoCodes;
+  })();
+
+  return {
+    siteSettings,
     categories: Array.isArray(o.categories) ? o.categories : d.categories,
-    products: Array.isArray(o.products) ? o.products : d.products,
+    products,
     businessHours:
       o.businessHours &&
       typeof o.businessHours.open === 'string' &&
       typeof o.businessHours.close === 'string'
         ? { open: o.businessHours.open, close: o.businessHours.close }
         : d.businessHours,
-    whatsapp: typeof o.whatsapp === 'string' ? o.whatsapp : d.whatsapp,
-    siteBanners: (() => {
-      const sb = o.siteBanners;
-      const base = d.siteBanners;
-      if (!sb || typeof sb !== 'object') return { ...base };
-      const urls = sb.heroImageUrls;
-      const ids = sb.featuredProductIds;
-      return {
-        heroImageUrls:
-          Array.isArray(urls) && urls.every((u) => typeof u === 'string')
-            ? urls
-            : base.heroImageUrls,
-        featuredProductIds:
-          Array.isArray(ids) && ids.every((x) => typeof x === 'string')
-            ? ids
-            : base.featuredProductIds,
-        carouselSeconds:
-          typeof sb.carouselSeconds === 'number' && sb.carouselSeconds >= 2
-            ? sb.carouselSeconds
-            : base.carouselSeconds,
-      };
-    })(),
-    promoCodes: (() => {
-      if (!Array.isArray(o.promoCodes)) return d.promoCodes;
-      const out: PromoCodeEntry[] = [];
-      for (const p of o.promoCodes) {
-        if (
-          !p ||
-          typeof p !== 'object' ||
-          typeof (p as PromoCodeEntry).id !== 'string' ||
-          typeof (p as PromoCodeEntry).code !== 'string' ||
-          typeof (p as PromoCodeEntry).discountPercent !== 'number' ||
-          typeof (p as PromoCodeEntry).activeOnWebsite !== 'boolean' ||
-          typeof (p as PromoCodeEntry).createdAt !== 'string'
-        )
-          continue;
-        const pc = p as PromoCodeEntry;
-        out.push({
-          id: pc.id,
-          code: pc.code,
-          discountPercent: Math.min(95, Math.max(1, Math.round(pc.discountPercent))),
-          activeOnWebsite: pc.activeOnWebsite,
-          validFrom: isIsoDateLike(pc.validFrom) ? pc.validFrom : undefined,
-          validTo: isIsoDateLike(pc.validTo) ? pc.validTo : undefined,
-          note: typeof pc.note === 'string' ? pc.note : undefined,
-          createdAt: pc.createdAt,
-        });
-      }
-      return out.length ? out : d.promoCodes;
-    })(),
+    whatsapp:
+      typeof o.whatsapp === 'string' ? o.whatsapp.replace(/\D/g, '') : d.whatsapp,
+    siteBanners,
+    promoCodes,
   };
-  return merged;
 }

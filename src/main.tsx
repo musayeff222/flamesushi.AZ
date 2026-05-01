@@ -5,6 +5,7 @@ import { CatalogProvider } from './CatalogContext.tsx';
 import App from './App.tsx';
 import AdminLogin from './admin/AdminLogin.tsx';
 import AdminPanel from './admin/AdminPanel.tsx';
+import AdminPromoNew from './admin/AdminPromoNew.tsx';
 import { ADMIN_ROUTES } from './admin/paths.ts';
 import './index.css';
 
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
             path={ADMIN_ROUTES.legacyLogin}
             element={<Navigate to={ADMIN_ROUTES.login} replace />}
           />
+          <Route path={ADMIN_ROUTES.promoNew} element={<AdminPromoNew />} />
           <Route path={ADMIN_ROUTES.panel} element={<AdminPanel />} />
           <Route path="/*" element={<App />} />
         </Routes>

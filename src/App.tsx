@@ -26,6 +26,10 @@ import {
 } from 'lucide-react';
 import type { Product, Category } from './constants.ts';
 import type { PromoCodeEntry } from './types/catalog.ts';
+import {
+  formatOrderWindowMessage,
+  isWithinOrderWindow,
+} from './utils/orderWindow.ts';
 import { useCatalog } from './CatalogContext.tsx';
 
 function promoEligible(p: PromoCodeEntry): boolean {
@@ -42,12 +46,52 @@ function promoEligible(p: PromoCodeEntry): boolean {
   return true;
 }
 
+function productDiscountBadgeText(product: Product): string | null {
+  const dm = product.discountMode ?? 'none';
+  if (
+    (dm === 'percent' || (dm === 'none' && (product.discountPercent ?? 0) > 0)) &&
+    (product.discountPercent ?? 0) > 0
+  )
+    return `−${Math.round(product.discountPercent!)}%`;
+  if (dm === 'fixed' && (product.discountFixedAmount ?? 0) > 0)
+    return `−${product.discountFixedAmount} ₼`;
+  if (
+    dm === 'none' &&
+    product.discountPrice &&
+    product.price > product.discountPrice
+  )
+    return `−${Math.round((1 - product.discountPrice / product.price) * 100)}%`;
+  return null;
+}
+
+function resolveBannerProduct(
+  products: Product[],
+  title: string,
+): Product | undefined {
+  const t = title.trim();
+  if (!t) return undefined;
+  return (
+    products.find((p) => p.name.trim() === t) ??
+    products.find(
+      (p) => p.name.trim().toLowerCase() === t.toLowerCase(),
+    )
+  );
+}
+
 // --- Types ---
 type Page = 'home' | 'cart' | 'about' | 'checkout';
 
 interface CartItem extends Product {
   quantity: number;
 }
+
+type PromoApplied =
+  | null
+  | {
+      code: string;
+      kind: 'percent' | 'fixed';
+      value: number;
+    };
 
 // --- Components ---
 
@@ -130,8 +174,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showWAPopup, setShowWAPopup] = useState(false);
   const [promoCode, setPromoCode] = useState('');
-  /** 0 = yoxdur, əks halda endirim faizi (məs. 10) */
-  const [promoDiscountPercent, setPromoDiscountPercent] = useState(0);
+  const [promoApplied, setPromoApplied] = useState<PromoApplied>(null);
   const [isScrolling, setIsScrolling] = useState(false);
 
   // Scroll detection for WhatsApp FAB
@@ -190,11 +233,29 @@ export default function App() {
     });
   };
 
-  const cartTotal = useMemo(() => {
-    const subtotal = cart.reduce((acc, item) => acc + (item.discountPrice || item.price) * item.quantity, 0);
-    const m = Math.min(90, Math.max(0, promoDiscountPercent)) / 100;
-    return promoDiscountPercent > 0 ? subtotal * (1 - m) : subtotal;
-  }, [cart, promoDiscountPercent]);
+  const cartSubtotal = useMemo(
+    () =>
+      cart.reduce(
+        (acc, item) => acc + (item.discountPrice ?? item.price) * item.quantity,
+        0,
+      ),
+    [cart],
+  );
+
+  const promoDeduction = useMemo(() => {
+    if (!promoApplied) return 0;
+    if (promoApplied.kind === 'percent') {
+      const m =
+        Math.min(90, Math.max(0, promoApplied.value)) / 100;
+      return cartSubtotal * m;
+    }
+    return Math.min(
+      cartSubtotal,
+      Math.max(0, promoApplied.value),
+    );
+  }, [promoApplied, cartSubtotal]);
+
+  const cartTotal = Math.max(0, cartSubtotal - promoDeduction);
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
 
@@ -205,15 +266,45 @@ export default function App() {
       (p) => p.code.trim().toUpperCase() === q && promoEligible(p),
     );
     if (hit) {
-      setPromoDiscountPercent(hit.discountPercent);
+      const kind =
+        hit.discountType === 'fixed' ? 'fixed' : 'percent';
+      const value =
+        kind === 'fixed' ?
+          Math.max(0, hit.discountFixedAmount ?? 0)
+        : Math.min(
+            90,
+            Math.max(0, hit.discountPercent ?? 0),
+          );
+      setPromoApplied({
+        code: hit.code.trim().toUpperCase(),
+        kind,
+        value,
+      });
     } else {
       alert('Yanlış və ya aktiv olmayan promo kod');
     }
   };
 
+  useEffect(() => {
+    const t = catalog.siteSettings?.themeId ?? 'flame';
+    document.documentElement.setAttribute('data-site-theme', t);
+    return () => document.documentElement.removeAttribute('data-site-theme');
+  }, [catalog.siteSettings?.themeId]);
+
   const [bannerIndex, setBannerIndex] = useState(0);
 
   const bannerSlides = useMemo(() => {
+    const slides =
+      catalog.siteBanners?.slides?.filter((s) => s.imageUrl.trim()) ?? [];
+    if (slides.length > 0) {
+      return slides.map((s) => ({
+        key: s.id,
+        imageUrl: s.imageUrl,
+        title: s.overlayProductName.trim() || 'Flame Sushi',
+        priceLabel: s.overlayPriceLabel.trim() || '',
+        durationSeconds: s.durationSeconds,
+      }));
+    }
     const heroUrls =
       catalog.siteBanners?.heroImageUrls?.filter((u) => Boolean(u?.trim())) ?? [];
     const feat = catalog.siteBanners?.featuredProductIds ?? [];
@@ -228,10 +319,22 @@ export default function App() {
           fallback[idx % Math.max(fallback.length, 1)] ??
           PRODUCTS[0];
         const p = product!;
-        return { key: `hb-${idx}-${p.id}`, imageUrl: url, product: p };
+        return {
+          key: `hb-${idx}-${p.id}`,
+          imageUrl: url,
+          title: p.name,
+          priceLabel: `${Number(p.discountPrice ?? p.price).toFixed(0)} ₼`,
+          durationSeconds: catalog.siteBanners?.carouselSeconds ?? 4,
+        };
       });
     }
-    return fallback.map((p) => ({ key: p.id, imageUrl: p.image, product: p }));
+    return fallback.map((p) => ({
+      key: p.id,
+      imageUrl: p.image,
+      title: p.name,
+      priceLabel: `${Number(p.discountPrice ?? p.price).toFixed(0)} ₼`,
+      durationSeconds: catalog.siteBanners?.carouselSeconds ?? 4,
+    }));
   }, [catalog.siteBanners, PRODUCTS]);
 
   const sortedProductsByCategory = useMemo(() => {
@@ -247,8 +350,6 @@ export default function App() {
     }
     return map;
   }, [PRODUCTS, CATEGORIES]);
-
-  const carouselMs = Math.max(2500, (catalog.siteBanners?.carouselSeconds ?? 4) * 1000);
 
   /** Aşağı sükananda ən çox görünən qrup seçilir; chip sətirini yalnız klikdə mərkəzə sürüşürük. */
   useEffect(() => {
@@ -283,14 +384,25 @@ export default function App() {
   }, [CATEGORIES, PRODUCTS]);
 
   useEffect(() => {
-    if (activePage === 'home') {
-      const interval = setInterval(() => {
-        const n = bannerSlides.length || 1;
-        setBannerIndex((prev) => (prev + 1) % n);
-      }, carouselMs);
-      return () => clearInterval(interval);
-    }
-  }, [activePage, bannerSlides.length, carouselMs]);
+    if (activePage !== 'home' || bannerSlides.length === 0) return;
+    const n = bannerSlides.length;
+    const slide = bannerSlides[bannerIndex % n]!;
+    const sec = Math.max(
+      2,
+      slide.durationSeconds ??
+        catalog.siteBanners?.carouselSeconds ??
+        4,
+    );
+    const t = window.setTimeout(() => {
+      setBannerIndex((i) => (i + 1) % n);
+    }, sec * 1000);
+    return () => window.clearTimeout(t);
+  }, [
+    activePage,
+    bannerIndex,
+    bannerSlides,
+    catalog.siteBanners?.carouselSeconds,
+  ]);
 
   const handleOrder = () => {
     if (!customerName || (orderType === 'delivery' && !address)) {
@@ -303,7 +415,14 @@ export default function App() {
     const paymentText = paymentMethod === 'cash' ? 'Nağd' : 'Posterminal (kart)';
     const totalText = `${cartTotal.toFixed(2)}₼`;
     
-    const message = `🔥 *YENİ SİFARİŞ - FLAME SUSHI*%0A%0A👤 *Müştəri:* ${customerName}%0A📦 *Növ:* ${typeText}${orderType === 'delivery' ? `%0A📍 *Ünvan:* ${address}` : ''}%0A💳 *Ödəniş:* ${paymentText}%0A%0A🛒 *Məhsullar:*%0A${itemsText}%0A%0A💰 *Cəmi:* ${totalText}${promoDiscountPercent > 0 ? ` (${promoDiscountPercent}% endirim tətbiq edildi)` : ''}`;
+    const promoWa =
+      promoApplied ?
+        promoApplied.kind === 'percent'
+        ? `%0A%0A🎟%20*%20Promo*%3A%20${promoApplied.value}%25%20%28${encodeURIComponent(promoApplied.code)}%29`
+        : `%0A%0A🎟%20*%20Promo*%3A%20${promoApplied.value.toFixed(2)}%20₼%20%28${encodeURIComponent(promoApplied.code)}%29`
+      : '';
+
+    const message = `🔥 *YENİ SİFARİŞ - FLAME SUSHI*%0A%0A👤 *Müştəri:* ${customerName}%0A📦 *Növ:* ${typeText}${orderType === 'delivery' ? `%0A📍 *Ünvan:* ${address}` : ''}%0A💳 *Ödəniş:* ${paymentText}%0A%0A🛒 *Məhsullar:*%0A${itemsText}%0A%0A💰 *Cəmi:* ${totalText}${promoWa}`;
     
     window.open(`https://wa.me/${whatsappDigits}?text=${message}`, '_blank');
   };
@@ -351,35 +470,43 @@ export default function App() {
                 animate={{ x: `calc(-${bannerIndex * 100}% - ${bannerIndex * 16}px)` }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
               >
-                {bannerSlides.map(({ key, imageUrl, product }) => (
+                {bannerSlides.map(({ key, imageUrl, title, priceLabel }) => {
+                  const bp = resolveBannerProduct(PRODUCTS, title);
+                  return (
                   <div key={key} className="relative min-w-full md:min-w-[calc(50%-8px)] h-48 md:h-64 rounded-3xl p-6 md:p-10 text-white shadow-xl shadow-orange-200/50 overflow-hidden">
                     <img 
                       src={imageUrl} 
-                      alt={product.name} 
+                      alt={title} 
                       className="absolute inset-0 w-full h-full object-cover brightness-50 transition-transform duration-1000 hover:scale-105" 
                       referrerPolicy="no-referrer"
                     />
                     <div className="relative z-10 flex flex-col justify-between h-full">
                       <div>
                         <div className="text-[10px] md:text-xs uppercase font-bold opacity-90 mb-2 tracking-wider">Həftənin Təklifi</div>
-                        <h3 className="text-2xl md:text-4xl font-bold mb-2 leading-tight drop-shadow-lg">{product.name}</h3>
-                        <div className="text-xl md:text-2xl font-bold drop-shadow-md">
-                          {product.discountPrice || product.price} ₼ 
-                          {product.discountPrice && <span className="text-sm md:text-lg font-normal line-through opacity-60 ml-3">{product.price} ₼</span>}
-                        </div>
+                        <h3 className="text-2xl md:text-4xl font-bold mb-2 leading-tight drop-shadow-lg">{title}</h3>
+                        <div className="text-xl md:text-2xl font-bold drop-shadow-md">{priceLabel}</div>
                       </div>
                       <button 
+                        type="button"
                         onClick={() => {
-                          addToCart(product);
-                          setActivePage('cart');
+                          if (bp) {
+                            addToCart(bp);
+                            setActivePage('cart');
+                          }
                         }}
-                        className="self-start md:self-end bg-white text-primary text-xs md:text-sm font-bold px-6 py-2.5 md:px-8 md:py-3 rounded-full hover:scale-110 active:scale-95 transition-all shadow-xl shadow-black/20"
+                        disabled={!bp}
+                        className={`self-start md:self-end text-xs md:text-sm font-bold px-6 py-2.5 md:px-8 md:py-3 rounded-full transition-all shadow-xl shadow-black/20 ${
+                          bp
+                            ? 'bg-white text-primary hover:scale-110 active:scale-95'
+                            : 'cursor-not-allowed bg-white/50 text-neutral-300'
+                        }`}
                       >
-                        Sifariş Et
+                        {bp ? 'Sifariş Et' : 'Menyuda uyğun məhsul yoxdur'}
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </motion.div>
             </div>
 
@@ -442,55 +569,89 @@ export default function App() {
                       </span>
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                      {items.map((product) => (
-                        <div
-                          key={product.id}
-                          className="group relative flex flex-col space-y-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-md"
-                        >
-                          {product.discountPrice ?
-                            <div className="absolute right-4 top-4 z-10 rounded bg-red-500 px-2 py-1 text-[10px] font-bold text-white">
-                              -
-                              {Math.round(
-                                (1 - product.discountPrice / product.price) * 100,
-                              )}
-                              %
-                            </div>
-                          : null}
-                          <div className="aspect-square w-full overflow-hidden rounded-2xl bg-orange-50">
-                            {product.image?.trim() ?
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                referrerPolicy="no-referrer"
-                              />
-                            : <div className="flex h-full w-full items-center justify-center bg-neutral-100 p-4 text-center text-[11px] font-bold leading-snug text-neutral-400">
-                                Şəkil yüklənməyib — admin paneldə seçin
+                      {items.map((product) => {
+                        const ow = product.orderWindow;
+                        const inWindow =
+                          !ow?.enabled ||
+                          isWithinOrderWindow(
+                            new Date(),
+                            ow?.start ?? '00:00',
+                            ow?.end ?? '23:59',
+                          );
+                        const windowLocked = Boolean(ow?.enabled) && !inWindow;
+                        if (windowLocked && ow?.hideOutsideWindow) return null;
+                        const badge = productDiscountBadgeText(product);
+
+                        return (
+                          <div
+                            key={product.id}
+                            className={`group relative flex flex-col space-y-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-sm transition-all duration-300 hover:shadow-md ${
+                              windowLocked ? 'opacity-70' : ''
+                            }`}
+                          >
+                            {badge ?
+                              <div className="absolute right-4 top-4 z-10 rounded bg-red-500 px-2 py-1 text-[10px] font-bold text-white">
+                                {badge}
                               </div>
-                            }
+                            : null}
+                            <div className="aspect-square w-full overflow-hidden rounded-2xl bg-orange-50">
+                              {product.image?.trim() ?
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className={`h-full w-full object-cover transition-transform duration-500 ${
+                                    windowLocked ?
+                                      ''
+                                    : 'group-hover:scale-110'
+                                  }`}
+                                  referrerPolicy="no-referrer"
+                                />
+                              : <div className="flex h-full w-full items-center justify-center bg-neutral-100 p-4 text-center text-[11px] font-bold leading-snug text-neutral-400">
+                                  Şəkil yüklənməyib — admin paneldə seçin
+                                </div>
+                              }
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="text-base font-bold leading-tight text-neutral-800">
+                                {product.name}
+                              </h4>
+                              <p className="mt-1 line-clamp-3 text-[11px] text-neutral-400 md:line-clamp-none">
+                                {product.description}
+                              </p>
+                              {product.extraNote?.trim() ?
+                                <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-primary/90">
+                                  {product.extraNote}
+                                </p>
+                              : null}
+                              {windowLocked ?
+                                <p className="mt-2 text-[11px] font-bold leading-snug text-amber-700">
+                                  {formatOrderWindowMessage(
+                                    ow?.start ?? '',
+                                    ow?.end ?? '',
+                                  )}
+                                </p>
+                              : null}
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-lg font-bold text-primary">
+                                {product.discountPrice ?? product.price} ₼
+                              </span>
+                              <button
+                                type="button"
+                                disabled={windowLocked}
+                                onClick={() => addToCart(product)}
+                                className={`flex h-9 w-9 items-center justify-center rounded-xl bg-primary font-bold text-white shadow-lg shadow-primary/10 transition-all hover:bg-primary-dark active:scale-90 ${
+                                  windowLocked ?
+                                    'cursor-not-allowed opacity-40 hover:bg-primary'
+                                  : ''
+                                }`}
+                              >
+                                <Plus size={20} />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <h4 className="text-base font-bold leading-tight text-neutral-800">
-                              {product.name}
-                            </h4>
-                            <p className="mt-1 line-clamp-3 text-[11px] text-neutral-400 md:line-clamp-none">
-                              {product.description}
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-lg font-bold text-primary">
-                              {product.discountPrice || product.price} ₼
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => addToCart(product)}
-                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary font-bold text-white shadow-lg shadow-primary/10 transition-all hover:bg-primary-dark active:scale-90"
-                            >
-                              <Plus size={20} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 );
@@ -570,8 +731,7 @@ export default function App() {
                       <div className="flex items-center justify-between text-white/60 font-bold uppercase tracking-widest text-[10px] md:text-xs">
                         <span>Məbləğ</span>
                         <span className="text-base md:text-lg">
-                          {(cartTotal / (promoDiscountPercent > 0 ? (1 - Math.min(90, promoDiscountPercent) / 100) : 1)).toFixed(2)}{' '}
-                          ₼
+                          {cartSubtotal.toFixed(2)} ₼
                         </span>
                       </div>
                       <div className="flex gap-2 md:gap-3">
@@ -581,32 +741,31 @@ export default function App() {
                           className="flex-1 bg-white/10 border border-white/20 rounded-[18px] md:rounded-[24px] px-4 md:px-6 py-3 md:py-4 text-sm md:text-base font-bold focus:ring-2 focus:ring-white/40 outline-none transition-all placeholder:text-white/40"
                           value={promoCode}
                           onChange={(e) => setPromoCode(e.target.value)}
-                          disabled={promoDiscountPercent > 0}
+                          disabled={promoApplied !== null}
                         />
                         <button 
+                          type="button"
                           onClick={applyPromo}
-                          className={`px-5 md:px-8 py-3 md:py-4 rounded-[18px] md:rounded-[24px] font-black transition-all uppercase tracking-widest text-[10px] md:text-xs ${promoDiscountPercent > 0 ? 'bg-white text-primary' : 'bg-neutral-900 text-white hover:bg-black shadow-2xl shadow-black/20'}`}
-                          disabled={promoDiscountPercent > 0}
+                          className={`px-5 md:px-8 py-3 md:py-4 rounded-[18px] md:rounded-[24px] font-black transition-all uppercase tracking-widest text-[10px] md:text-xs ${promoApplied ? 'bg-white text-primary' : 'bg-neutral-900 text-white hover:bg-black shadow-2xl shadow-black/20'}`}
+                          disabled={promoApplied !== null}
                         >
-                          {promoDiscountPercent > 0 ? 'Ok' : 'Yoxla'}
+                          {promoApplied ? 'Ok' : 'Yoxla'}
                         </button>
                       </div>
-                      {promoDiscountPercent > 0 && (
+                      {promoApplied ?
                         <div className="flex items-center justify-between text-white font-extrabold py-1">
-                          <span className="flex items-center gap-2 text-sm md:text-base">
-                            <TagIcon size={16} /> ENDİRİM ({promoDiscountPercent}%)
+                          <span className="flex flex-wrap items-center gap-2 text-sm md:text-base">
+                            <TagIcon size={16} /> ENDİRİM (
+                            {promoApplied.kind === 'percent'
+                              ? `${promoApplied.value}%`
+                              : `${promoApplied.value.toFixed(2)} ₼`}
+                            , {promoApplied.code})
                           </span>
                           <span className="text-lg md:text-xl">
-                            -
-                            {(
-                              (cartTotal /
-                                (1 - Math.min(90, promoDiscountPercent) / 100)) *
-                              (Math.min(90, promoDiscountPercent) / 100)
-                            ).toFixed(2)}{' '}
-                            ₼
+                            − {promoDeduction.toFixed(2)} ₼
                           </span>
                         </div>
-                      )}
+                      : null}
                       <div className="h-px bg-white/10 my-2 md:my-4" />
                       <div className="flex items-center justify-between">
                         <span className="text-white/60 font-bold text-lg md:text-xl uppercase tracking-tighter">Cəmi Məbləğ</span>
@@ -754,8 +913,9 @@ export default function App() {
                 <div className="space-y-6 text-center">
                   <h2 className="text-5xl md:text-7xl font-black leading-tight text-neutral-900 tracking-tighter">Dadlı Sushi-nin Unikal Ünvanı</h2>
                   <div className="w-32 h-2 bg-primary rounded-full mx-auto shadow-2xl shadow-primary/40" />
-                  <p className="text-xl md:text-2xl text-neutral-500 leading-relaxed font-semibold max-w-3xl mx-auto">
-                    Flame Sushi olaraq biz sizə ən təzə dəniz məhsulları və unikal dadlar təqdim edirik. Hər bir sushi peşəkar aşpazlarımız tərəfindən sevgi ilə hazırlanır.
+                  <p className="text-xl md:text-2xl text-neutral-500 leading-relaxed font-semibold max-w-3xl mx-auto whitespace-pre-line">
+                    {(catalog.siteSettings?.aboutText?.trim()) ||
+                      'Flame Sushi olaraq biz sizə ən təzə dəniz məhsulları və unikal dadlar təqdim edirik. Hər bir sushi peşəkar aşpazlarımız tərəfindən sevgi ilə hazırlanır.'}
                   </p>
                 </div>
 
@@ -790,11 +950,19 @@ export default function App() {
                       <div className="flex flex-col gap-4 md:gap-6">
                         <div className="flex items-center gap-4 md:gap-6 text-lg md:text-2xl">
                           <div className="w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-white/20 flex items-center justify-center shrink-0"><Phone size={20} className="md:w-7 md:h-7" /></div>
-                          <span className="font-black">+994 55 533 88 98</span>
+                          <span className="font-black">
+                            {catalog.siteSettings?.contactPhone?.trim()
+                              ? catalog.siteSettings.contactPhone.trim()
+                              : whatsappDigits ?
+                                `+${whatsappDigits}`
+                              : '—'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-4 md:gap-6 text-lg md:text-2xl">
                           <div className="w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-white/20 flex items-center justify-center shrink-0"><Clock size={20} className="md:w-7 md:h-7" /></div>
-                          <span className="font-black">Hər gün: 11:00 - 23:00</span>
+                          <span className="font-black">
+                            Hər gün: {BUSINESS_HOURS.open} — {BUSINESS_HOURS.close}
+                          </span>
                         </div>
                       </div>
                     </div>
