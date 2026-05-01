@@ -53,7 +53,6 @@ import { ADMIN_ROUTES } from './paths.ts';
 import { AdminBannersTab } from './AdminBannersTab.tsx';
 import { AdminPromosTab } from './AdminPromosTab.tsx';
 import { AdminLocalImageInput } from './AdminLocalImageInput.tsx';
-import type { ThemeId } from '../types/catalog.ts';
 import {
   cloneCatalogJson,
   useDebouncedAdminCatalogPersist,
@@ -346,7 +345,7 @@ async function fetchAdminMe(): Promise<{
 export default function AdminPanel() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { catalog } = useCatalog();
+  const { catalog, reload } = useCatalog();
 
   const [authReady, setAuthReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -1118,18 +1117,65 @@ export default function AdminPanel() {
           >
             <div>
               <label
-                className={`mb-3 block text-xs font-black uppercase tracking-widest ${
+                className={`mb-2 block text-xs font-black uppercase tracking-widest ${
                   dark ? 'text-neutral-500' : 'text-neutral-400'
                 }`}
               >
-                Görünüş (canlı seçim — sayta keçəndə görünər)
+                Mağaza teması (3 fərqli görünüş)
               </label>
+              <p
+                className={`mb-4 text-sm leading-relaxed ${
+                  dark ? 'text-neutral-400' : 'text-neutral-600'
+                }`}
+              >
+                Birini seçin — təxminən yarım saniyə sonra avtomatik saxlanır və
+                mağaza səhifəsi yenilənəndə dərhal tətbiq olunur. Fərqi dərhal
+                görmək üçün aşağıdakı linklərdən birini yeni vərəqdə açın.
+              </p>
+              <div className="mb-4 flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: 'flame' as const, lab: 'Flame' },
+                    { id: 'sakura' as const, lab: 'Sakura' },
+                    { id: 'ocean' as const, lab: 'Ocean' },
+                  ] as const
+                ).map((t) => (
+                  <a
+                    key={t.id}
+                    href={`/?previewTheme=${t.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-wide transition ${
+                      dark ?
+                        'border-neutral-600 bg-neutral-950 text-neutral-200 hover:border-primary hover:text-primary'
+                      : 'border-neutral-200 bg-white text-neutral-700 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {t.lab} — tam ekran önizləmə
+                  </a>
+                ))}
+              </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {(
                   [
-                    { id: 'flame' as const, lab: 'Flame · alov', sub: '#FF6B35' },
-                    { id: 'sakura' as const, lab: 'Sakura', sub: '#ec4899' },
-                    { id: 'ocean' as const, lab: 'Ocean', sub: '#0ea5e9' },
+                    {
+                      id: 'flame' as const,
+                      lab: 'Flame',
+                      sub: '#FF6B35',
+                      desc: 'İsti alov, yumru künc, Inter mətn',
+                    },
+                    {
+                      id: 'sakura' as const,
+                      lab: 'Sakura',
+                      sub: '#db2777',
+                      desc: 'Pastel çəhrayı, Fraunces başlıq, yumşaq kölgə',
+                    },
+                    {
+                      id: 'ocean' as const,
+                      lab: 'Ocean',
+                      sub: '#0ea5e9',
+                      desc: 'Künclər kəskin, qəzet blok-kölgə, Outfit',
+                    },
                   ] as const
                 ).map((t) => {
                   const active =
@@ -1150,24 +1196,44 @@ export default function AdminPanel() {
                       className={`touch-manipulation rounded-2xl border-2 p-3 text-left transition ${
                         active ?
                           dark ?
-                            'border-primary bg-neutral-950'
-                          : 'border-primary bg-primary/5'
+                            'border-primary bg-neutral-950 ring-2 ring-primary/35'
+                          : 'border-primary bg-primary/5 ring-2 ring-primary/25'
                         : dark ?
-                          'border-neutral-700 bg-neutral-950'
-                        : 'border-neutral-200 bg-neutral-50'
+                          'border-neutral-700 bg-neutral-950 hover:border-neutral-600'
+                        : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300'
                       }`}
                     >
                       <div
-                        className="mb-2 h-14 w-full rounded-xl shadow-inner"
+                        className="relative mb-2 h-16 w-full overflow-hidden rounded-xl border border-black/10 shadow-inner"
                         style={{
-                          background: `linear-gradient(135deg,${t.sub},${t.sub}99)`,
+                          background: `linear-gradient(145deg,${t.sub} 0%,${t.sub}aa 42%,rgba(255,255,255,0.35)100%)`,
                         }}
-                      />
-                      <p className="text-sm font-black">{t.lab}</p>
+                      >
+                        <span className="absolute bottom-1.5 left-2 text-[10px] font-black uppercase text-white drop-shadow-md">
+                          {active ? '● Aktiv mağaza' : 'Seç'}
+                        </span>
+                      </div>
+                      <p className="text-base font-black">{t.lab}</p>
+                      <p
+                        className={`mt-1 text-xs leading-snug ${
+                          dark ? 'text-neutral-400' : 'text-neutral-500'
+                        }`}
+                      >
+                        {t.desc}
+                      </p>
                     </button>
                   );
                 })}
               </div>
+              <p
+                className={`mt-3 text-[11px] font-medium leading-relaxed ${
+                  dark ? 'text-neutral-500' : 'text-neutral-500'
+                }`}
+              >
+                Qeyd: yalnız ünvan sətirində <code>?previewTheme=...</code>{' '}
+                olduqda baxış parametri seçilmiş kimi göstərir — adi ziyarətdə
+                serverdə saxlanmış tema keçərlidir.
+              </p>
             </div>
 
             <div>

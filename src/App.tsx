@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ShoppingBag, 
@@ -25,7 +26,7 @@ import {
   Tag as TagIcon
 } from 'lucide-react';
 import type { Product, Category } from './constants.ts';
-import type { PromoCodeEntry } from './types/catalog.ts';
+import type { PromoCodeEntry, ThemeId } from './types/catalog.ts';
 import {
   formatOrderWindowMessage,
   isWithinOrderWindow,
@@ -61,6 +62,12 @@ function productDiscountBadgeText(product: Product): string | null {
     product.price > product.discountPrice
   )
     return `−${Math.round((1 - product.discountPrice / product.price) * 100)}%`;
+  return null;
+}
+
+function themeFromPreviewParam(value: string | null): ThemeId | null {
+  if (value === 'flame' || value === 'sakura' || value === 'ocean')
+    return value;
   return null;
 }
 
@@ -162,7 +169,12 @@ const WhatsAppPopup = ({
 };
 
 export default function App() {
+  const [searchParams] = useSearchParams();
   const { catalog } = useCatalog();
+
+  const previewTheme = themeFromPreviewParam(searchParams.get('previewTheme'));
+  const savedTheme: ThemeId = catalog.siteSettings?.themeId ?? 'flame';
+  const storefrontTheme: ThemeId = previewTheme ?? savedTheme;
   const PRODUCTS = catalog.products;
   const CATEGORIES = catalog.categories;
   const BUSINESS_HOURS = catalog.businessHours;
@@ -286,10 +298,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    const t = catalog.siteSettings?.themeId ?? 'flame';
-    document.documentElement.setAttribute('data-site-theme', t);
+    document.documentElement.setAttribute('data-site-theme', storefrontTheme);
     return () => document.documentElement.removeAttribute('data-site-theme');
-  }, [catalog.siteSettings?.themeId]);
+  }, [storefrontTheme]);
 
   const [bannerIndex, setBannerIndex] = useState(0);
 
@@ -568,7 +579,7 @@ export default function App() {
                         {items.length} məhsul
                       </span>
                     </div>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-x-2.5 gap-y-4 sm:gap-x-4 sm:gap-y-5 lg:grid-cols-3 xl:grid-cols-4">
                       {items.map((product) => {
                         const ow = product.orderWindow;
                         const inWindow =
@@ -585,12 +596,12 @@ export default function App() {
                         return (
                           <div
                             key={product.id}
-                            className={`sf-product-card group relative flex flex-col space-y-4 p-4 duration-300 ${
+                            className={`sf-product-card group relative flex flex-col space-y-2.5 p-3 sm:space-y-4 sm:p-4 duration-300 ${
                               windowLocked ? 'opacity-70' : ''
                             }`}
                           >
                             {badge ?
-                              <div className="absolute right-4 top-4 z-10 rounded bg-red-500 px-2 py-1 text-[10px] font-bold text-white">
+                              <div className="absolute right-2 top-2 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm sm:right-4 sm:top-4 sm:px-2 sm:py-1 sm:text-[10px]">
                                 {badge}
                               </div>
                             : null}
@@ -612,10 +623,10 @@ export default function App() {
                               }
                             </div>
                             <div className="flex-1">
-                              <h4 className="text-base font-bold leading-tight text-neutral-800">
+                              <h4 className="text-[13px] font-bold leading-snug text-neutral-800 sm:text-base">
                                 {product.name}
                               </h4>
-                              <p className="mt-1 line-clamp-3 text-[11px] text-neutral-400 md:line-clamp-none">
+                              <p className="mt-1 line-clamp-2 text-[10px] text-neutral-400 sm:text-[11px] sm:line-clamp-3 md:line-clamp-none">
                                 {product.description}
                               </p>
                               {product.extraNote?.trim() ?
@@ -633,14 +644,14 @@ export default function App() {
                               : null}
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-lg font-bold text-primary">
+                              <span className="text-sm font-bold tabular-nums text-primary sm:text-lg">
                                 {product.discountPrice ?? product.price} ₼
                               </span>
                               <button
                                 type="button"
                                 disabled={windowLocked}
                                 onClick={() => addToCart(product)}
-                                className={`sf-icon-btn flex h-9 w-9 items-center justify-center bg-primary font-bold text-white transition-all hover:bg-primary-dark active:scale-90 ${
+                                className={`sf-icon-btn flex h-8 w-8 shrink-0 items-center justify-center bg-primary text-white transition-all hover:bg-primary-dark active:scale-90 sm:h-9 sm:w-9 ${
                                   windowLocked ?
                                     'cursor-not-allowed opacity-40 hover:bg-primary'
                                   : ''
